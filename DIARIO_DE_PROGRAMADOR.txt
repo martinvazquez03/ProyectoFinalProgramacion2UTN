@@ -1,0 +1,133 @@
+DIARIO DE PROGRAMADOR - TP FINAL PROGRAMACION II
+
+Fecha: 12/11/2026
+Autor: Martin Vazquez
+
+Armé la estructura de carpetas para el proyecto:
+src/config, src/dao, src/dao/impl, src/model, src/enums, src/interfaces, src/exception, src/service, src/service/impl, src/util, src/controller, src/view.
+
+1- enums : RolUsuario, EstadoVehiculo, EstadoReserva y EstadoOcupacion. Así ya tenía las constantes que iba a usar después.
+
+2- interfaces. Alquilable para marcar que un vehiculo puede alquilarse y Auditable para llevar registro de fecha/usuario.
+
+3- excepciones personalizadas: VehiculoNoDisponibleException, ReservaInvalidaException, UsuarioNoAutorizadoException y BaseDatosException.
+
+Después fui con el modelo. Cree Persona como clase abstracta, con atributos privados, getters/setters, método abstracto getIdentificacion() y getNombreCompleto(). De ahi heredaron Cliente y Empleado. También hice Vehiculo como clase abstracta implementando Alquilable, y de ahi hereda Automovil.
+
+Seguí con Usuario, Reserva, Ocupacion, Entrega, Devolucion. Todos aplicando encapsulamiento. En Reserva y Ocupacion implemente Auditable.
+
+Para cumplir con genéricos, cree DAOGenerico<T> y RepositorioGenerico<T, ID> con método genérico mapear(Function<T,R>). También use ArrayList y HashMap como colecciones.
+
+Para la persistencia arme ConnectionFactory con JDBC y SQLite. Cree UsuarioDAO y VehiculoDAO implementando DAOGenerico. Inicialicé las tablas usuario y vehiculo con CREATE TABLE IF NOT EXISTS.
+
+Luego arme el sistema con una capa envolvente: SistemaAlquiler. Ahí metí toda la lógica para mantener el encapsulamiento. El Main solo quedó para el menu con switch, pedir datos e imprimir lo que me devuelve SistemaAlquiler.
+
+ inicializarDatos() el sistema arranca vacío pero al iniciar se crea automáticamente el usuario mariano con contraseña 1234 como administrador, solo si no existe.
+
+Hice que el login lea directamente de la BD. También hice que listarDisponibles(), listarNoDisponibles(), verFlotaPolimorfismo(), administrarUsuarios() lean desde SQLite mediante los DAOs.
+
+Agregué la opción 1 para crear usuarios. Primero solo para admin, luego modifiqué para que empleado también pueda crear usuarios, pero solo un admin puede crear otro admin. Ahora se elige el rol desde un submenú.
+
+Agregué la opción 6 para agregar vehículos a la BD. Solo puede hacerlo un admin o un empleado. Valido que no exista la patente.
+
+Reorganicé el menú para que crear usuario quede primero y corrí las opciones.
+
+Modifiqué las opciones de listado para que lean directamente desde la BD, carguen los datos a un ArrayList genérico y recien ahí se muestren desde el Main.
+
+Agregué validaciones al crear un automóvil: la marca no puede estar vacía ni contener números, el año no puede superar el año actual ni ser menor a 1900, kilometraje y precios válidos.
+
+Arreglé la opción 4 para mostrar automóviles alquilados leyendo desde BD por estado ALQUILADO.
+
+La opción 7 ahora permite crear clientes desde ahí. Si no hay clientes, es obligatorio crearlos.
+
+Para las entregas/devoluciones, permití que tanto Administrador como Empleado las realicen.
+
+Cambié el rol CONDUCTOR por CLIENTE en todo el proyecto para evitar conflictos.
+
+Agregué la opción 14 para limpiar toda la BD excepto el usuario mariano, con lógica en GestorBaseDatos.
+
+GestorBaseDatos para inicializar tablas, guardar clientes, reservas, ocupaciones, entregas, devoluciones y para limpiar datos.
+
+Por último, hice que al inicializar el programa se carguen desde la BD todos los datos (clientes, vehículos, empleados y reservas) a sus respectivos contenedores genéricos (ArrayList y RepositorioGenerico).
+
+Sigo compilando y probando para asegurar que todo funcione correctamente.
+
+[13/11/2026]
+Creé 3 clientes y 3 automóviles. Hice 2 reservas, 1 entrega y 1 devolución (80km, LLENO), actualizando kilometraje a EN_LIMPIEZA.
+Menú reorganizado: opción 4 con submenú de vehículos; agregadas opciones 5 (Listar clientes) y 6 (Listar reservas).
+Agregados listarClientes() y listarReservas() en SistemaAlquiler.
+
+[13/11/2026] - Reordenamiento de menú
+Reorganicé el menú principal: login/cerrar sesión primero (1), listados/ver objetos (2-7), creación/entrega/devolución (8-13), eliminar datos (14), limpiar BD (15), salir (0).
+Agregada opción de cerrar sesión solo si hay usuario logueado. Opción 14 con submenú para eliminar clientes/usuarios/automóviles/reservas eliminando también reservas asociadas. Validación de email con @ y .com.
+
+[13/11/2026] - Modificar estado de vehiculo y testing integral
+Agregue la opcion 11 'Modificar estado de vehiculo' (ADMIN/EMPLEADO): lista todos los vehiculos con indice y permite cambiar el estado (DISPONIBLE/ALQUILADO/RESERVADO/EN_LIMPIEZA/EN_REPARACION/FUERA_SERVICIO), persistiendolo en SQLite y sincronizando el repositorio generico.
+Corregi un bug de indices en crearReserva: el listado del menu muestra solo automoviles DISPONIBLES, pero la logica indexaba sobre todos los vehiculos; ahora ambos usan la misma lista filtrada.
+Corregi eliminarVehiculo para indexar sobre la lista de la BD (mismo orden que el listado) en lugar del HashMap del repositorio.
+Corregi eliminarUsuario: usaba la columna inexistente nombre_usuario y el id incorrecto; ahora borra por id_usuario y el GestorBaseDatos usa la columna username.
+[13/11/2026] - Eliminacion de usuarios por indice
+Agregue listarUsuarios() y eliminarUsuarioPorIndice(int) en SistemaAlquiler. En el submenu de eliminacion de usuarios ahora se listan los usuarios con indice (0, 1, 2...) y se elige por numero, igual que clientes/vehiculos/reservas.
+[13/11/2026] - Persistencia de estado de reserva
+Corregi un bug: al realizar una entrega, el estado CONCRETADA de la reserva solo quedaba en memoria (guardarReserva usa INSERT OR IGNORE). Agregue GestorBaseDatos.actualizarEstadoReserva(id, estado) y lo invoco al finalizar la entrega, para que el estado persista tras reiniciar.
+Datos de demo cargados: empleados empleado1/1234 y empleado2/1234; clientes Ana Lopez, Bruno Diaz y Carla Sosa; autos AAA111 Toyota Corolla, BBB222 Ford Fiesta y CCC333 Honda Civic; reservas Ana/AAA111 (2026-11-20 a 24) y Bruno/BBB222 (2026-11-25 a 28). Entrega y devolucion de la reserva de Ana: km 15000 -> 15350, , reserva CONCRETADA y AAA111 EN_LIMPIEZA.
+
+[13/11/2026] - correccion de errores generales de todo el proyecto
+limpieza completa de bdd (excepto usuario admin mariano) y testeo de todas las funcionalidades.
+[17/11/2026] - Eliminacion de combustible y nuevos datos en listados
+Elimine todo lo relacionado con combustible: enum TipoCombustible, atributo de Automovil, campos de Entrega y Devolucion, columnas de la base, parametros de servicio y el prompt del menu. La devolucion ahora solo pide kilometros recorridos, danios y cargos extra.
+En los listados de flota y de cada automovil (disponibles, no disponibles, flota completa, todos los vehiculos y seleccion de reserva) se muestra precio por dia y kilometraje en lugar del costo por 5/3 dias. Actualice README y DIAGRAMA_UML.
+
+[17/11/2026] Refactor de constructores y persistencia. Los usuarios ADMIN/EMPLEADO ahora se crean con datos de Persona y generan un Empleado real (mismo id) via constructor; se elimino el empleado ficticio SISTEMA/00000000 usado en entrega y devolucion. agregarAutomovil pide cantidad de puertas y transmision, y se serializan en datos_especificos. Se agregaron columnas creado_por (reserva) e id_reserva/creado_por (ocupacion) con migracion automatica, guardarOcupacion usa UPSERT, y al iniciar se cargan ocupaciones con su entrega y devolucion. La entrega pide observaciones y la reserva guarda el usuario real. Compilado y probado con BD temporal (alta de empleado, entrega, reinicio, devolucion) y migracion sobre la BD existente.
+
+
+[17/11/2026] - Limpieza de BD, prueba integral y correccion de bugs
+Realice backup de la BD, limpie la base (opcion 16) y cargue un set de datos demo completo: usuarios mariano y lopez, clientes Juan/Maria/Ana, vehiculos AB123CD/EF456GH/IJ789KL/MN345OP, reservas concretadas/pendientes e historial de entregas y devoluciones.
+Corregi Devolucion.aplicarMultas: "NINGUNO"/"NO"/"SIN DANIOS"/"-" ya no generan multa ni envian el vehiculo a EN_REPARACION.
+Agregue GestorBaseDatos.eliminarOcupacionCompleta y cascada de ocupaciones finalizadas con su entrega/devolucion al eliminar clientes, vehiculos o reservas; si hay una ocupacion activa se bloquea la eliminacion.
+Reforce estados: agregarAutomovil y modificarEstadoVehiculo rechazan ALQUILADO/RESERVADO (derivados de reservas/entregas) y estados invalidos.
+Valide kilometros y cargos negativos en devoluciones, bloquee la auto-eliminacion de usuario, relaje la validacion de email (acepta .com.ar) y agregue mensajes de salida temprana cuando no hay datos en las opciones 12, 13 y 14.
+Probe todos los flujos con usuario ADMIN y EMPLEADO, reinicios, borrados con y sin historial y controles por rol; deje la flota en estado DISPONIBLE. Actualice README y DIAGRAMA_UML.
+
+[17/11/2026] - Usuarios CLIENTE con acceso restringido y reservas propias
+Habilite la creacion de usuarios con rol CLIENTE desde la opcion 8: se construyen Cliente y Usuario con el mismo id usando sus constructores (sin legajo/sucursal) y se persisten ambos.
+El login ahora acepta CLIENTE y adjunta su ficha de Cliente; el menu reducido solo muestra "Ver automoviles disponibles" y "Crear reserva", bloqueando el resto de opciones.
+El acceso de CLIENTE queda limitado a ver vehiculos disponibles y gestionar sus reservas. Al crear una reserva desde una sesion CLIENTE no se pide cliente: se usa automaticamente la ficha del usuario logueado y se guarda id_cliente/creado_por.
+Reforce los controles: eliminar clientes/vehiculos/reservas exige ADMIN/EMPLEADO, el historial completo no esta disponible para CLIENTE y al eliminar un cliente se borra su usuario CLIENTE asociado.
+Probado con BD temporal: alta de usuario CLIENTE, login, menu reducido, reserva sin seleccion de cliente, bloqueo de opciones, persistencia tras reinicio y alta de reserva desde ADMIN.
+
+[17/11/2026] - Autorregistro de clientes y regresion completa
+La opcion 8 ahora funciona sin sesion iniciada: solo permite autorregistrar un usuario CLIENTE (no muestra eleccion de rol ni pide legajo/sucursal). Con sesion ADMIN/EMPLEADO se mantiene la creacion de ADMINISTRADOR/EMPLEADO/CLIENTE.
+El servicio tambien valida el caso sin sesion (rechaza ADMINISTRADOR/EMPLEADO) y tolera rol nulo. Se corrigio que un CLIENTE pudiera usar crearReserva(indiceCliente,...) para reservar con otra ficha; ahora debe usar su propia ficha. Tambien se bloqueo listarClientes()/listarReservas() para CLIENTE.
+Se ejecuto una regresion sobre una copia de la BD: 44 comprobaciones OK (invitado, login CLIENTE, controles por rol, reserva heredada, bloqueos, admin, empleado, entrega/devolucion, cascadas, persistencia y limpieza). Tambien se probaron los listados y la creacion de ADMIN/EMPLEADO por menu.
+
+[19/11/2026] - Gestion y cancelacion de reservas
+La opcion 12 del menu paso de "Crear reserva" a "Gestionar reserva", con submenu para crear o cancelar.
+Implemente Reserva.cancelar() y el estado EstadoReserva.CANCELADA, con persistencia mediante actualizarEstadoReserva.
+Agregue listarReservasCancelables() y cancelarReserva(indice) en SistemaAlquiler. CLIENTE solo ve y cancela reservas propias; ADMIN y EMPLEADO pueden cancelar cualquiera. Se excluyen reservas CONCRETADAS, ya canceladas o con ocupacion activa.
+Probado sobre copia de la BD: 32 comprobaciones OK (creacion, listado filtrado, cancelacion propia de CLIENTE, bloqueo de reservas ajenas, cancelacion por EMPLEADO y ADMIN, exclusion de CONCRETADAS y persistencia tras reiniciar).
+
+[19/11/2026] - Consolidacion de persistencia en GestorBaseDatos
+Elimine UsuarioDAO, VehiculoDAO y DAOGenerico porque quedaban sin uso. Migre a GestorBaseDatos todas las operaciones que si se usaban: guardar/cargar/eliminar usuarios y guardar/cargar/actualizar vehiculos, incluido el mapeo de Automovil desde tipo/datos_especificos.
+No migre UsuarioDAO.actualizar ni VehiculoDAO.eliminar porque no tenian llamadas; el resto de la logica de SistemaAlquiler y ServicioAlquilerImpl ahora usa GestorBaseDatos.
+Verificado con compilacion limpia y dos regresiones sobre copias de la BD: 38 comprobaciones de usuarios/vehiculos/entrega/devolucion/persistencia y 32 de cancelacion de reservas, todas OK. La BD real no se modifico.
+
+[19/11/2026] - Accessors utiles del modelo
+Revise los getters/setters y agregue solamente Ocupacion.getFechaFinReal() para mostrar la fecha real de devolucion en el historial de clientes. El resto de getters/setters quedo sin cambios. Posteriormente ese valor se reemplazo por una derivacion de la Devolucion para evitar duplicar estado.
+
+[19/11/2026] - Eliminacion de permisos redundantes
+Revise el uso de Permiso: solo se consultaba en crearReservaParaCliente y esa validacion era redundante con los controles de rol existentes. El permiso BACKUP tampoco tenia una funcionalidad asociada. Para no mantener una abstraccion incompleta, elimine src/enums/Permiso.java, el campo permisos de Usuario, asignarPermisosPorRol(), tienePermiso() y getPermisos(); setRol() ya no reasigna permisos.
+Ajuste SistemaAlquiler para quitar la validacion por permiso y mostrar los usuarios sin la columna de permisos. Los accesos siguen controlados exclusivamente por RolUsuario y no cambie las reglas de negocio. Actualice README y DIAGRAMA_UML para reflejar las 4 enumeraciones y el modelo sin permisos.
+Verificacion sobre copias de la BD con compilacion limpia: 28 comprobaciones de roles (invitado, CLIENTE, EMPLEADO, ADMIN, creacion/eliminacion de usuarios, limpieza), 38 de persistencia/entrega/devolucion y 32 de cancelacion, todas OK. La regresion de 44 comprobaciones quedo reemplazada por estas suites. La BD real no se modifico.
+
+[19/11/2026] - Historial y datos derivados sin duplicacion
+Corregi el historial de ocupaciones: al iniciar y al recargar desde SQLite se reconstruye el historial de cada Cliente; agregarOcupacion ignora ids repetidos y el listado de historial usa la coleccion del cliente en lugar de recorrer dos fuentes.
+Elimine los campos duplicados Reserva.fechaCreacion y Ocupacion.fechaCreacion: los metodos getFechaCreacion() ahora devuelven fechaReserva y fechaInicio respectivamente. Tambien elimine Reserva.montoSenia: getMontoSenia() se calcula con Vehiculo.tarifaSeguro, se quito la columna monto_senia del esquema nuevo y se migra una BD existente eliminando esa columna legacy.
+Ocupacion.fechaFinReal ya no se guarda como campo: getFechaFinReal() se obtiene de la Devolucion asociada, por lo que no puede quedar desincronizada; calcularDias() y el historial usan ese valor.
+Verificacion sobre copias de la BD y una BD nueva: 23 comprobaciones de invariantes (historial sin duplicados tras reinicio, fechas derivadas, sena igual a tarifaSeguro, fechaFinReal persistida, migracion de esquema), 28 de roles, 38 de persistencia y 32 de cancelacion, todas OK.
+
+[19/11/2026] - Eliminacion de reserva al entregar e historial legible
+Al concretar una entrega, la reserva asociada ahora se elimina de la tabla reserva y del contenedor reservas. Antes de borrarla, la ocupacion guarda fecha_reserva y fecha_inicio_reserva; la fecha de fin de la reserva se sigue derivando de fecha_fin_estimada. De esta forma el historial conserva los datos aunque la reserva ya no exista.
+Agregue columnas y migracion automatica para ocupacion.fecha_reserva/ocupacion.fecha_inicio_reserva, ajuste guardarOcupacion/cargarOcupaciones y evite que el historial muestre dos veces una reserva que ya esta representada por una ocupacion.
+El historial ahora muestra bloques legibles con RESERVA (fecha de realizacion y periodo), ENTREGA y DEVOLUCION usando dd/MM/yyyy y dd/MM/yyyy HH:mm. Tambien actualice README y DIAGRAMA_UML.
+Verificacion sobre copias de la BD y una BD nueva: 28 roles, 38 migracion/persistencia, 32 cancelacion y 54 invariantes (27 con BD nueva y 27 con BD legacy). Se comprobo que la reserva no reaparece tras reiniciar, que las fechas de reserva siguen en la ocupacion y que el historial no duplica la entrega. Total: 152 comprobaciones OK. La BD real no se modifico.
