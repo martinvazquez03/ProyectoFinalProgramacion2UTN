@@ -10,7 +10,7 @@ Desarrollar un sistema para la administración de una empresa de alquiler de veh
 ## 1.1 Arquitectura del Sistema
 
 - **Capa Envolvente:** `service/SistemaAlquiler.java` contiene toda la lógica de negocio. Mantiene el encapsulamiento del sistema.
-- **Main:** `src/Main.java` únicamente se encarga del menú con `switch`, la entrada de datos por consola y la impresión de lo que retorna `SistemaAlquiler`. Todas las funcionalidades retornan `String`, no realizan `System.out.println` dentro de la lógica.
+- **Main:** `src/Main.java` contiene solo el bucle principal, la obtencion de la opcion y el `switch` que delega en `MenuConsola`. `src/MenuConsola.java` maneja menus, submenus, entrada por consola e impresion. Las funcionalidades de negocio siguen en `SistemaAlquiler` y no realizan `System.out.println`.
 - **Persistencia:** Toda la lógica SQL está centralizada en `dao/GestorBaseDatos.java`. `SistemaAlquiler` carga la BD en repositorios genéricos y desde ese momento lee de ellos; al crear o modificar datos, primero actualiza el repositorio y luego persiste con `GestorBaseDatos`.
 - **Inicializacion:** al arrancar se crean las tablas con `CREATE TABLE IF NOT EXISTS` y se migran columnas faltantes. Se crea `mariano`/`1234` (ADMINISTRADOR) con su `Empleado` si no existe. Se cargan clientes, vehiculos, empleados, reservas, ocupaciones y usuarios en repositorios genéricos.
 - **Solo automoviles:** el sistema trabaja unicamente con la clase `Automovil` (no existen camionetas ni furgones).
@@ -34,7 +34,7 @@ Desarrollar un sistema para la administración de una empresa de alquiler de veh
 
 | Tipo de Usuario | Alcance | Descripción |
 | --- | --- | --- |
-| `ADMINISTRADOR` | Total | ABM de usuarios, limpieza de BD, eliminacion de datos, reportes/listados y operacion completa. |
+| `ADMINISTRADOR` | Total | ABM de usuarios, desactivacion de datos, reportes/listados y operacion completa. |
 | `EMPLEADO` | Operativo | Reservas, entregas, devoluciones, alta de clientes y vehiculos, consulta de flota. No crea ADMIN ni limpia la BD. |
 | `CLIENTE` | Restringido | Ver automoviles disponibles y gestionar sus reservas (crear/cancelar solo las propias); el cliente se toma del usuario logueado. |
 
@@ -135,7 +135,7 @@ Todas heredan de `Exception` (checked) o `RuntimeException` (unchecked) según c
 | --- | --- | --- | --- |
 | `VehiculoNoDisponibleException` | Checked/Unchecked | Intentar alquilar/reservar un vehículo con estado distinto a `DISPONIBLE` o ya ocupado. | Capturar en `ServicioAlquiler`, informar al usuario, loggear. |
 | `ReservaInvalidaException` | Checked | Fechas invalidas (inicio > fin), solapamiento de reservas, reserva ya concretada/cancelada o cliente con ocupacion activa. | Validacion en `Reserva.validar()` y `SistemaAlquiler.crearReserva()`/`realizarEntregaPorIndice()`. |
-| `UsuarioNoAutorizadoException` | Unchecked | Acceso a funcionalidad no permitida para el `RolUsuario`. | Validacion en `SistemaAlquiler` (login, crearUsuario, eliminarUsuario, limpiarDatosBD). |
+| `UsuarioNoAutorizadoException` | Unchecked | Acceso a funcionalidad no permitida para el `RolUsuario`. | Validacion en `SistemaAlquiler` (login, crearUsuario, desactivarUsuario). |
 | `BaseDatosException` | Checked | Errores SQL, conexión caída, transacción fallida. | Capturar en la capa de persistencia, envolver excepciones JDBC. |
 
 Ejemplo:
@@ -187,6 +187,8 @@ src/
 └── Main.java
 ```
 
+`MenuConsola.java` contiene los menus, submenus y la interaccion por consola; `Main.java` solo conserva el bucle y el switch principal.
+
 ### `config/ConnectionFactory.java`
 - Conexión a `jdbc:sqlite:alquiler_vehiculos.db`
 - Método estático `getConnection()` y `cerrar(AutoCloseable)`
@@ -194,9 +196,9 @@ src/
 ### `dao/GestorBaseDatos.java`
 | Responsabilidad | Operaciones |
 | --- | --- |
-| Usuarios | `guardarUsuario`, `leerUsuarioPorId`, `leerUsuarioPorUsername`, `leerUsuarios`, `eliminarUsuarioPorId` |
+| Usuarios | `guardarUsuario`, `leerUsuarioPorId`, `leerUsuarioPorUsername`, `leerUsuarios`, `actualizarActivoUsuario` |
 | Vehiculos | `guardarVehiculo`, `leerVehiculoPorPatente`, `leerVehiculos`, `actualizarVehiculo` |
-| Resto del sistema | Clientes, empleados, reservas, ocupaciones, entregas, devoluciones, cascadas y limpieza de BD |
+| Resto del sistema | Clientes, empleados, reservas, ocupaciones, entregas, devoluciones y actualizacion de estado activo |
 
 El mapeo de vehiculos segun `tipo`/`datos_especificos` tambien vive en `GestorBaseDatos`; instancia `Automovil` y parsea `"<puertas>|<transmision>"`, con compatibilidad para datos legados.
 
@@ -206,7 +208,7 @@ El mapeo de vehiculos segun `tipo`/`datos_especificos` tambien vive en `GestorBa
 
 | Componente | Funcionalidades | Reglas |
 | --- | --- | --- |
-| `SistemaAlquiler` | login/logout, crearUsuario, crearCliente, agregarAutomovil, esCliente, crearReserva, reservarComoCliente, crearReservaCliente, realizarEntregaPorIndice, realizarDevolucionPorIndice, listados, historial, eliminaciones y limpiarDatosBD | Mantiene repositorios genéricos para clientes, vehículos, reservas, empleados, ocupaciones y usuarios. Lee de ellos y, antes de persistir, actualiza el repositorio correspondiente. Valida rol, datos de Persona, patente unica, solapamientos, fechas, estados y ocupaciones activas antes de eliminar. El listado de entrega incluye unicamente reservas PENDIENTES y no pide observaciones. Al entregar, elimina la reserva asociada del repositorio y de la BD. En la devolución, los cargos extra se toman de `Vehiculo.tarifaSeguro` y las observaciones se cargan por teclado. |
+| `SistemaAlquiler` | login/logout, crearUsuario, crearCliente, agregarAutomovil, esCliente, crearReserva, reservarComoCliente, crearReservaCliente, realizarEntregaPorIndice, realizarDevolucionPorIndice, listados, historial y desactivaciones | Mantiene repositorios genéricos para clientes, vehículos, reservas, empleados, ocupaciones y usuarios. Lee de ellos y, antes de persistir, actualiza el repositorio correspondiente. Valida rol, datos de Persona, patente unica, solapamientos, fechas, estados y ocupaciones activas antes de desactivar. El listado de entrega incluye unicamente reservas PENDIENTES y no pide observaciones. Al entregar, elimina la reserva asociada del repositorio y de la BD. En la devolución, los cargos extra se toman de `Vehiculo.tarifaSeguro` y las observaciones se cargan por teclado. |
 | `ServicioAlquiler` / `ServicioAlquilerImpl` | realizarEntrega(reserva, empleado, observaciones), realizarDevolucion(ocupacion, empleado, km, danios, cargos), listarAlquiladosActualmente, listarOcupaciones, cargarOcupaciones | Comparte el repositorio de ocupaciones y el de usuarios con `SistemaAlquiler`. Genera Ocupacion/Entrega/Devolucion, actualiza estado y km del vehiculo, aplica multas y registra la ocupación en el repositorio antes de que `SistemaAlquiler` persista. Los cargos extra recibidos se calculan desde la tarifa de seguro del vehículo. |
 
 ## 14. Flujo Funcional Principal
@@ -218,7 +220,7 @@ El mapeo de vehiculos segun `tipo`/`datos_especificos` tambien vive en `GestorBa
 5. **Consulta de flota** - Automoviles > Listar vehiculos y Ver flota completa leen desde `repoVehiculos`; `verFlotaCompleta()` conserva el orden de carga/alta.
 6. **Clientes y reservas** - Clientes > Crear cliente (ADMIN/EMPLEADO); Reservas > Crear reserva: ADMIN/EMPLEADO elige cliente y vehiculo, mientras que un usuario CLIENTE crea la reserva con su propia ficha (sin elegir cliente) y `creadoPor` = usuario logueado. La reserva se guarda primero en `repoReservas` y luego en la BD; el control de solapamientos y ocupaciones activas también consulta los repositorios.
 7. **Entrega/Devolucion** - Entregas > Realizar entrega y Devoluciones > Realizar devolucion usan el `Empleado` del usuario logueado (sin datos ficticios) y persisten entrega, devolucion y estado de la ocupacion. La entrega lista solo reservas PENDIENTES, no pide observaciones y toma como fecha de inicio la `fechaInicio` de la reserva asignada por el usuario; guarda una instantanea de las fechas de la reserva en la ocupacion y luego elimina la reserva de `repoReservas` y de la BD. La devolucion pide daños y observaciones, no pide cargos extra por teclado: usa `Vehiculo.tarifaSeguro` como cargo extra y sigue aplicando la multa automatica por daños. El historial muestra reserva, entrega, devolucion y las observaciones de la devolucion.
-8. **Administracion** - Usuarios y sistema > Ver usuarios lee desde `repoUsuarios`; Eliminar usuario y Limpiar BD solo estan disponibles para ADMIN; limpiar restaura el legajo de mariano.
+8. **Administracion** - Usuarios > Ver usuarios lee desde `repoUsuarios`; Crear usuario esta disponible para ADMIN/EMPLEADO y Desactivar usuario solo para ADMIN.
 
 ## 15. Documentación de Código (Obligatoria)
 
@@ -291,7 +293,7 @@ CREATE TABLE IF NOT EXISTS usuario (
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     rol TEXT NOT NULL,
-    activo INTEGER NOT NULL
+    activo INTEGER DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS vehiculo (
@@ -304,26 +306,28 @@ CREATE TABLE IF NOT EXISTS vehiculo (
     precio_dia REAL NOT NULL,
     tarifa_seguro REAL NOT NULL,
     tipo TEXT NOT NULL,
-    datos_especificos TEXT
+    datos_especificos TEXT,
+    activo INTEGER DEFAULT 1
 );
 ```
 
-Las tablas restantes (`empleado`, `cliente`, `reserva`, `ocupacion`, `entrega`, `devolucion`) se crean en `GestorBaseDatos.crearTablas()` con sus claves foraneas. La tabla `reserva` no guarda una seña duplicada: se calcula con `Vehiculo.tarifaSeguro`; si una BD existente tenia `monto_senia`, la migracion elimina esa columna legacy al iniciar. La tabla `ocupacion` incluye `fecha_reserva` y `fecha_inicio_reserva` para conservar los datos de la reserva aun cuando la entrega la elimine. Las columnas `reserva.creado_por` y `ocupacion.creado_por` guardan el username; al iniciar, una migracion convierte valores legacy que sean id de usuario o legajo de empleado. La tabla `devolucion` incluye `observaciones`; en bases previas la columna se agrega automaticamente.
+Las tablas restantes (`empleado`, `cliente`, `reserva`, `ocupacion`, `entrega`, `devolucion`) se crean en `GestorBaseDatos.crearTablas()` con sus claves primarias y relaciones logicas por id. Cliente, vehiculo y reserva incluyen `activo INTEGER DEFAULT 1`; usuario ya tenia `activo`. La tabla `reserva` no guarda una seña duplicada: se calcula con `Vehiculo.tarifaSeguro`; si una BD existente tenia `monto_senia`, la migracion elimina esa columna legacy al iniciar. La tabla `ocupacion` incluye `fecha_reserva` y `fecha_inicio_reserva` para conservar los datos de la reserva aun cuando la entrega la elimine. Las columnas `reserva.creado_por` y `ocupacion.creado_por` guardan el username; al iniciar, una migracion convierte valores legacy que sean id de usuario o legajo de empleado. La tabla `devolucion` incluye `observaciones`; en bases previas la columna se agrega automaticamente.
 
 **Usuario por defecto:** `mariano` / `1234` / `ADMINISTRADOR` (creado automáticamente si no existe).
 
 
 - Automoviles > Modificar estado de vehiculo (ADMIN/EMPLEADO): lista todos los vehiculos y permite cambiar su estado con persistencia en SQLite.
-- Correcciones: indices de reserva alineados con el listado de disponibles, eliminacion de vehiculo por orden de BD y borrado de usuario por id/username.
+- Correcciones: indices de reserva alineados con el listado de disponibles, desactivacion de vehiculo por orden de BD y actualizacion de estado activo de usuarios.
 
 ## 20. Estado actual (19/11/2026)
 
-- Menu dinamico y agrupado: sin sesion solo muestra iniciar sesion, crear usuario CLIENTE y salir. Con sesion muestra categorias: Clientes, Automoviles, Reservas, Entregas, Devoluciones y Usuarios (ADMIN la ve como "Usuarios y sistema"). Cada categoria abre su propio submenu; CLIENTE solo ve Automoviles y Reservas, y EMPLEADO no accede a limpieza de BD ni a eliminacion de usuarios.
-- Las eliminaciones bloquean clientes/vehiculos/reservas con ocupacion activa; las ocupaciones finalizadas se borran en cascada con su entrega y devolucion.
-- Validaciones: email `usuario@dominio.com`; estados manuales permitidos DISPONIBLE/EN_LIMPIEZA/EN_REPARACION/FUERA_SERVICIO; "NINGUNO" no aplica multa.
+- Menu dinamico y agrupado: sin sesion solo muestra iniciar sesion, crear usuario CLIENTE y salir. Con sesion muestra categorias: Clientes, Automoviles, Reservas, Entregas, Devoluciones y Usuarios. Cada categoria abre su propio submenu; CLIENTE solo ve Automoviles y Reservas, y EMPLEADO no accede a desactivacion de usuarios.
+- Las desactivaciones bloquean clientes/vehiculos/reservas con ocupacion activa; los registros inactivos se conservan en la BD pero dejan de listarse y de estar disponibles. Solo ADMIN puede desactivar clientes, vehiculos, reservas y usuarios.
+- Validaciones: email `usuario@dominio.com`; estados manuales permitidos DISPONIBLE/EN_LIMPIEZA/EN_REPARACION/FUERA_SERVICIO; "NINGUNO" no aplica multa. Se rechazan DNI de cliente duplicados, patentes duplicadas sin distinguir mayusculas, estado nulo en alta y modificacion de estado de un vehiculo con ocupacion activa.
+- Controles de acceso: un invitado no puede listar clientes, reservas, usuarios, ocupaciones ni reservas para entrega; un CLIENTE no accede a listados administrativos ni a usuarios; un EMPLEADO no lista usuarios ni limpia la BD.
 - La BD incluida trae datos de demostracion (usuarios, clientes, flota, reservas e historial).
-- Un usuario CLIENTE inicia sesion con menu reducido (disponibles + gestionar reserva) y sus reservas usan automaticamente su ficha de cliente. EMPLEADO no ve usuarios ni limpieza de BD; ADMIN ve todas las opciones.
-- El submenu Reservas permite crear, cancelar y (ADMIN/EMPLEADO) listar o eliminar reservas. Cancelar pasa la reserva a CANCELADA y persiste el cambio; CLIENTE solo puede cancelar las propias, ADMIN/EMPLEADO cualquiera. Las reservas CONCRETADAS o con ocupacion activa no se pueden cancelar.
+- Un usuario CLIENTE inicia sesion con menu reducido (disponibles + gestionar reserva) y sus reservas usan automaticamente su ficha de cliente. EMPLEADO no ve desactivacion de usuarios; ADMIN ve todas las opciones.
+- El submenu Reservas permite crear, cancelar y (ADMIN/EMPLEADO) listar reservas; desactivar reservas es exclusivo de ADMIN. Cancelar pasa la reserva a CANCELADA y persiste el cambio; CLIENTE solo puede cancelar las propias, ADMIN/EMPLEADO cualquiera. Las reservas CONCRETADAS o con ocupacion activa no se pueden cancelar.
 - Sin sesion iniciada, la opcion 2 solo permite autorregistrarse como CLIENTE (no crea ADMIN ni EMPLEADO).
 - Al entregar, la reserva asociada se elimina de la BD y de `repoReservas`; la ocupación conserva las fechas de reserva, inicio y fin estimado. El historial muestra `RESERVA`, `ENTREGA`, `DEVOLUCIÓN` y `OBSERVACIONES` de la devolución en formato `dd/MM/yyyy` / `dd/MM/yyyy HH:mm`.
 - `reserva.creado_por` y `ocupacion.creado_por` almacenan usernames. La migración inicial traduce legajos/ids legacy a username cuando encuentra el usuario correspondiente.

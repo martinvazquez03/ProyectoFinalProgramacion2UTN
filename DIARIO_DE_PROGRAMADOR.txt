@@ -189,3 +189,23 @@ Extraje el alta de usuario a un metodo comun para reutilizarlo desde el menu inv
 Reorganice el menu logueado en categorias: Clientes, Automoviles, Reservas, Entregas, Devoluciones y Usuarios/Sistema. Cada categoria tiene su propio submenu con las acciones correspondientes y una opcion 0 para volver; las consultas, altas, modificaciones y eliminaciones quedaron dentro de la categoria de la entidad que manejan.
 El menu de invitado sigue mostrando solo iniciar sesion, crear usuario CLIENTE y salir. Las categorias y subopciones se filtran por rol: CLIENTE solo ve Automoviles y Reservas; EMPLEADO no accede a limpieza de BD ni a eliminacion de usuarios; ADMIN ve todo. Extraje los flujos de crear cliente, agregar/modificar/eliminar automovil, crear/cancelar/eliminar reserva, entrega, devolucion y usuarios a metodos independientes.
 Actualice README y DIAGRAMA_UML. Verificado con prueba de menu agrupado (17 comprobaciones), compilacion completa y las suites funcionales existentes.
+
+[19/11/2026] - Testeo exhaustivo y correcciones
+Ejecute una suite integral de 124 comprobaciones sobre una BD nueva, cubriendo login, altas de usuario/cliente/vehiculo, validaciones de datos erroneos, reservas y solapamientos, entrega, devolucion, eliminacion, limpieza, persistencia tras recargar y controles por rol.
+Correcciones aplicadas:
+- crearCliente ahora rechaza DNI duplicado, igual que crearUsuario para CLIENTE.
+- listarClientes, listarReservas, verHistorialCliente, listarUsuarios, listarAlquilados y getReservaInfo ya no exponen datos sin sesion; los roles no autorizados reciben UsuarioNoAutorizadoException.
+- modificarEstadoVehiculo rechaza cambios sobre un vehiculo con ocupacion activa y ahora lanza excepcion de autorizacion para roles no permitidos.
+- agregarAutomovil rechaza estado nulo/vacio y patentes duplicadas sin distinguir mayusculas; normaliza la patente con trim.
+- ServicioAlquilerImpl valida cliente y vehiculo en la reserva, rechaza vehiculos con ocupacion activa y valida que la ocupacion a devolver tenga vehiculo.
+Verificacion final: ExhaustiveTest 124/124, Envolvente 13/13, Migration 46/46, Invariant 36/36 nueva y 36/36 legacy, Role 28/28, Repositorio 20/20, Charge 14/14, Observaciones 10/10, PendingDelivery 15/15 y Menu 17/17. La BD real no se modifico.
+[19/11/2026] - Eliminacion de la opcion de vaciar base de datos
+Se elimino la opcion de limpiar/vaciar la base de datos del menu de Usuarios. Tambien se quitaron SistemaAlquiler.limpiarDatosBD() y GestorBaseDatos.limpiarDatosExceptoMariano(), junto con el submenu y las referencias de documentacion.
+La categoria ADMINISTRADOR ahora se llama Usuarios y conserva Ver usuarios, Crear usuario y Eliminar usuario. EMPLEADO conserva solo Crear usuario. Se actualizaron README, DIAGRAMA_UML y DOCUMENTACION_SISTEMA.
+[20/11/2026] - Desactivacion logica de datos
+Cambie las funciones individuales de eliminar por desactivacion logica. Cliente, Vehiculo, Reserva y Usuario ahora tienen un flag activo que nace en true; las nuevas filas se guardan activas y las existentes se migran con activo=1.
+Solo ADMIN puede desactivar clientes, vehiculos, reservas y usuarios. La desactivacion bloquea si hay una ocupacion activa, conserva las filas en la BD y oculta los registros inactivos de listados, reservas, entregas y selecciones. Al desactivar un cliente o vehiculo tambien se desactivan sus reservas activas; al desactivar un cliente se desactiva su usuario CLIENTE.
+Elimine del DAO los metodos de borrado individual que quedaron sin uso. Actualice Main, README, DIAGRAMA_UML y DOCUMENTACION_SISTEMA. Verificado con SoftDeleteTest 66/66, ExhaustiveTest 121/121, Migration 47/47, Role 25/25, Invariant 36/36 en BD nueva y legacy, y el resto de suites funcionales.
+[20/11/2026] - Separacion de Main y MenuConsola
+Reduje Main a la creacion de SistemaAlquiler/MenuConsola, el bucle principal y un switch que delega las acciones. Mueva a MenuConsola los menus, submenus, prompts, lecturas por Scanner y la impresion de resultados.
+La logica de negocio, permisos, repositorios y persistencia siguen en SistemaAlquiler, ServicioAlquilerImpl, RepositorioGenerico y GestorBaseDatos. Actualice README, DIAGRAMA_UML y DOCUMENTACION_SISTEMA. Compilacion completa y prueba de menu 17/17.

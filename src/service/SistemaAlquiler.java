@@ -127,6 +127,10 @@ public class SistemaAlquiler {
                 repoUsuarios.guardar(mariano.getIdUsuario(), mariano);
                 gestorBaseDatos.guardarUsuario(mariano);
             } else {
+                if (!existente.isActivo()) {
+                    existente.setActivo(true);
+                    gestorBaseDatos.actualizarActivoUsuario(existente.getIdUsuario(), true);
+                }
                 Empleado admin = gestorBaseDatos.leerEmpleadoPorId(existente.getIdUsuario());
                 if (admin == null || datosEmpleadoAdminPorDefecto(admin)) {
                     admin = construirEmpleadoAdmin(existente.getIdUsuario());
@@ -186,7 +190,40 @@ public class SistemaAlquiler {
         if (idCliente == null) {
             return null;
         }
-        return repoClientes.buscar(idCliente).orElse(null);
+        Cliente cliente = repoClientes.buscar(idCliente).orElse(null);
+        return cliente != null && cliente.isActivo() ? cliente : null;
+    }
+
+    private List<Cliente> clientesActivos() {
+        List<Cliente> activos = new ArrayList<Cliente>();
+        for (Cliente cliente : repoClientes.listar()) {
+            if (cliente != null && cliente.isActivo()) {
+                activos.add(cliente);
+            }
+        }
+        return activos;
+    }
+
+    private List<Vehiculo> vehiculosActivos() {
+        List<Vehiculo> activos = new ArrayList<Vehiculo>();
+        for (Vehiculo vehiculo : repoVehiculos.listar()) {
+            if (vehiculo != null && vehiculo.isActivo()) {
+                activos.add(vehiculo);
+            }
+        }
+        return activos;
+    }
+
+    private List<Reserva> reservasActivas() {
+        List<Reserva> activas = new ArrayList<Reserva>();
+        for (Reserva reserva : repoReservas.listar()) {
+            if (reserva != null && reserva.isActivo()
+                    && reserva.getCliente() != null && reserva.getCliente().isActivo()
+                    && reserva.getVehiculo() != null && reserva.getVehiculo().isActivo()) {
+                activas.add(reserva);
+            }
+        }
+        return activas;
     }
 
     public String listarDisponibles() {
@@ -194,7 +231,7 @@ public class SistemaAlquiler {
         sb.append("\n--- AUTOMOVILES DISPONIBLES ---\n");
         try {
             boolean hay = false;
-            for (Vehiculo v : repoVehiculos.listar()) {
+            for (Vehiculo v : vehiculosActivos()) {
                 if (v != null && v.getEstado() == enums.EstadoVehiculo.DISPONIBLE) {
                     hay = true;
                     sb.append(v.getPatente()).append(" - ").append(v.getMarca()).append(" ").append(v.getModelo())
@@ -210,12 +247,20 @@ public class SistemaAlquiler {
     }
 
     public String listarAlquilados() {
+        if (usuarioLogueado == null) {
+            return "Debe iniciar sesión para listar ocupaciones.";
+        }
+        if (usuarioLogueado.getRol() != RolUsuario.ADMINISTRADOR && usuarioLogueado.getRol() != RolUsuario.EMPLEADO) {
+            throw new UsuarioNoAutorizadoException("Solo un ADMINISTRADOR o EMPLEADO puede listar ocupaciones.");
+        }
         StringBuilder sb = new StringBuilder();
         sb.append("\n--- OCUPACIONES ACTIVAS ---\n");
         try {
             ArrayList<Ocupacion> activas = new ArrayList<Ocupacion>();
             for (Ocupacion ocupacion : repoOcupaciones.listar()) {
-                if (ocupacion != null && ocupacion.estaActiva()) {
+                if (ocupacion != null && ocupacion.estaActiva()
+                        && ocupacion.getCliente() != null && ocupacion.getCliente().isActivo()
+                        && ocupacion.getVehiculo() != null && ocupacion.getVehiculo().isActivo()) {
                     activas.add(ocupacion);
                 }
             }
@@ -244,7 +289,7 @@ public class SistemaAlquiler {
         sb.append("\n--- AUTOMOVILES NO DISPONIBLES (CON MOTIVO) ---\n");
         try {
             boolean hay = false;
-            for (Vehiculo v : repoVehiculos.listar()) {
+            for (Vehiculo v : vehiculosActivos()) {
                 if (v != null && v.getEstado() != enums.EstadoVehiculo.DISPONIBLE) {
                     hay = true;
                     String motivo = v.getEstado() == enums.EstadoVehiculo.ALQUILADO ? "ALQUILADO - En poder del cliente" :
@@ -276,7 +321,15 @@ public class SistemaAlquiler {
             return errorDatosPersona;
         }
 
-        Cliente nuevoCliente = new Cliente(UUID.randomUUID().toString(), nombre.trim(), apellido.trim(), dni.trim(),
+        String dniNormalizado = dni.trim();
+        for (Cliente existente : repoClientes.listar()) {
+            if (existente != null && existente.getDni() != null
+                    && existente.getDni().equalsIgnoreCase(dniNormalizado)) {
+                return "Ya existe un cliente con ese DNI.";
+            }
+        }
+
+        Cliente nuevoCliente = new Cliente(UUID.randomUUID().toString(), nombre.trim(), apellido.trim(), dniNormalizado,
                 telefono != null ? telefono.trim() : "", email.trim(), java.time.LocalDate.now());
         repoClientes.guardar(nuevoCliente.getId(), nuevoCliente);
         gestorBaseDatos.guardarCliente(nuevoCliente);
@@ -290,10 +343,10 @@ public class SistemaAlquiler {
         if (usuarioLogueado.getRol() == RolUsuario.CLIENTE) {
             return "Los usuarios CLIENTE solo pueden reservar con su propia ficha.";
         }
-        if (repoClientes.listar().isEmpty()) {
+        if (clientesActivos().isEmpty()) {
             return "No hay clientes registrados. Cree un cliente primero.";
         }
-        List<Cliente> clientesActuales = repoClientes.listar();
+        List<Cliente> clientesActuales = clientesActivos();
         if (idxCliente < 0 || idxCliente >= clientesActuales.size()) {
             return "Índices inválidos.";
         }
@@ -329,11 +382,14 @@ public class SistemaAlquiler {
             if (cliente == null) {
                 return "Cliente inválido.";
             }
+            if (!cliente.isActivo()) {
+                return "El cliente está inactivo.";
+            }
             if (inicio == null || fin == null) {
                 return "Debe indicar fecha de inicio y fecha de fin.";
             }
             List<Vehiculo> vehiculosDisponibles = new ArrayList<Vehiculo>();
-            for (Vehiculo vehiculoDisponible : repoVehiculos.listar()) {
+            for (Vehiculo vehiculoDisponible : vehiculosActivos()) {
                 if (vehiculoDisponible != null && vehiculoDisponible.getEstado() == enums.EstadoVehiculo.DISPONIBLE) {
                     vehiculosDisponibles.add(vehiculoDisponible);
                 }
@@ -344,7 +400,7 @@ public class SistemaAlquiler {
             if (idxVehiculo < 0 || idxVehiculo >= vehiculosDisponibles.size()) {
                 return "Índices inválidos.";
             }
-            List<Reserva> reservasActuales = repoReservas.listar();
+            List<Reserva> reservasActuales = reservasActivas();
             for (Reserva r : reservasActuales) {
                 if (r != null && r.getCliente() != null && r.getCliente().getId().equals(cliente.getId()) && r.getEstado() != enums.EstadoReserva.CANCELADA && r.getEstado() != enums.EstadoReserva.CONCRETADA) {
                     if (r.getFechaInicio() != null && r.getFechaFin() != null) {
@@ -387,12 +443,15 @@ public class SistemaAlquiler {
     }
 
     public String listarClientes() {
-        if (usuarioLogueado != null && usuarioLogueado.getRol() == RolUsuario.CLIENTE) {
+        if (usuarioLogueado == null) {
+            return "Debe iniciar sesión para listar clientes.";
+        }
+        if (usuarioLogueado.getRol() != RolUsuario.ADMINISTRADOR && usuarioLogueado.getRol() != RolUsuario.EMPLEADO) {
             throw new UsuarioNoAutorizadoException("Un usuario CLIENTE no puede listar todos los clientes.");
         }
         StringBuilder sb = new StringBuilder();
         sb.append("\n--- LISTADO DE CLIENTES ---\n");
-        List<Cliente> clientesActuales = repoClientes.listar();
+        List<Cliente> clientesActuales = clientesActivos();
         if (clientesActuales.isEmpty()) {
             sb.append("No hay clientes registrados.\n");
             return sb.toString();
@@ -407,12 +466,15 @@ public class SistemaAlquiler {
     }
 
     public String listarReservas() {
-        if (usuarioLogueado != null && usuarioLogueado.getRol() == RolUsuario.CLIENTE) {
+        if (usuarioLogueado == null) {
+            return "Debe iniciar sesión para listar reservas.";
+        }
+        if (usuarioLogueado.getRol() != RolUsuario.ADMINISTRADOR && usuarioLogueado.getRol() != RolUsuario.EMPLEADO) {
             throw new UsuarioNoAutorizadoException("Un usuario CLIENTE no puede listar todas las reservas.");
         }
         StringBuilder sb = new StringBuilder();
         sb.append("\n--- LISTADO DE RESERVAS ---\n");
-        List<Reserva> reservasActuales = repoReservas.listar();
+        List<Reserva> reservasActuales = reservasActivas();
         if (reservasActuales.isEmpty()) {
             sb.append("No hay reservas.\n");
             return sb.toString();
@@ -465,7 +527,7 @@ public class SistemaAlquiler {
         if (usuarioLogueado == null) {
             return lista;
         }
-        for (Reserva reserva : repoReservas.listar()) {
+        for (Reserva reserva : reservasActivas()) {
             if (puedeCancelarReserva(reserva)) {
                 lista.add(reserva);
             }
@@ -496,119 +558,87 @@ public class SistemaAlquiler {
                 || usuarioLogueado.getRol() == RolUsuario.EMPLEADO;
     }
 
-    public String eliminarCliente(int indice) {
+    public String desactivarCliente(int indice) {
         if (usuarioLogueado == null) return "Debe iniciar sesión primero";
-        if (usuarioLogueado.getRol() != RolUsuario.ADMINISTRADOR && usuarioLogueado.getRol() != RolUsuario.EMPLEADO) {
-            throw new UsuarioNoAutorizadoException("Solo un ADMINISTRADOR o EMPLEADO puede eliminar clientes.");
+        if (usuarioLogueado.getRol() != RolUsuario.ADMINISTRADOR) {
+            throw new UsuarioNoAutorizadoException("Solo un ADMINISTRADOR puede desactivar clientes.");
         }
-        List<Cliente> clientesActuales = repoClientes.listar();
+        List<Cliente> clientesActuales = clientesActivos();
         if (indice < 0 || indice >= clientesActuales.size()) return "Cliente inválido";
         Cliente c = clientesActuales.get(indice);
         if (c == null) return "Cliente inválido";
-        java.util.ArrayList<Ocupacion> ocupacionesCliente = new java.util.ArrayList<Ocupacion>();
         for (Ocupacion o : repoOcupaciones.listar()) {
-            if (o != null && o.getCliente() != null && o.getCliente().getId().equals(c.getId())) {
-                if (o.estaActiva()) {
-                    return "No se puede eliminar el cliente: tiene una ocupación activa (vehículo "
-                            + (o.getVehiculo() != null ? o.getVehiculo().getPatente() : "sin patente") + ").";
-                }
-                ocupacionesCliente.add(o);
+            if (o != null && o.getCliente() != null && o.getCliente().getId().equals(c.getId())
+                    && o.estaActiva()) {
+                return "No se puede desactivar el cliente: tiene una ocupación activa (vehículo "
+                        + (o.getVehiculo() != null ? o.getVehiculo().getPatente() : "sin patente") + ").";
             }
         }
-        java.util.ArrayList<Reserva> aEliminar = new java.util.ArrayList<Reserva>();
+        int reservasDesactivadas = 0;
         for (Reserva r : repoReservas.listar()) {
-            if (r != null && r.getCliente() != null && r.getCliente().getId().equals(c.getId())) {
-                aEliminar.add(r);
+            if (r != null && r.isActivo() && r.getCliente() != null && r.getCliente().getId().equals(c.getId())) {
+                r.setActivo(false);
+                gestorBaseDatos.actualizarActivoReserva(r.getIdReserva(), false);
+                reservasDesactivadas++;
             }
         }
-        for (Reserva r : aEliminar) {
-            repoReservas.eliminar(r.getIdReserva());
-            GestorBaseDatos.eliminarReserva(r.getIdReserva());
+        c.setActivo(false);
+        gestorBaseDatos.actualizarActivoCliente(c.getId(), false);
+        Usuario usuarioAsociado = repoUsuarios.buscar(c.getId()).orElse(null);
+        if (usuarioAsociado != null && usuarioAsociado.getRol() == RolUsuario.CLIENTE && usuarioAsociado.isActivo()) {
+            usuarioAsociado.setActivo(false);
+            gestorBaseDatos.actualizarActivoUsuario(usuarioAsociado.getIdUsuario(), false);
         }
-        for (Ocupacion o : ocupacionesCliente) {
-            repoOcupaciones.eliminar(o.getIdOcupacion());
-            gestorBaseDatos.eliminarOcupacionCompleta(o.getIdOcupacion());
-        }
-        repoClientes.eliminar(c.getId());
-        GestorBaseDatos.eliminarCliente(c.getId());
-        try {
-            Usuario usuarioAsociado = repoUsuarios.buscar(c.getId()).orElse(null);
-            if (usuarioAsociado != null && usuarioAsociado.getRol() == RolUsuario.CLIENTE) {
-                repoUsuarios.eliminar(c.getId());
-                gestorBaseDatos.eliminarUsuarioPorId(c.getId());
-            }
-        } catch (Exception ignored) {
-        }
-        recargarOcupacionesDesdeBD();
-        return "Cliente eliminado correctamente. Se eliminaron " + aEliminar.size() + " reserva(s) y "
-                + ocupacionesCliente.size() + " ocupación(es) asociada(s).";
+        return "Cliente desactivado correctamente. Se desactivaron " + reservasDesactivadas + " reserva(s).";
     }
 
-    public String eliminarVehiculo(int indice) {
+    public String desactivarVehiculo(int indice) {
         if (usuarioLogueado == null) return "Debe iniciar sesión primero";
-        if (usuarioLogueado.getRol() != RolUsuario.ADMINISTRADOR && usuarioLogueado.getRol() != RolUsuario.EMPLEADO) {
-            throw new UsuarioNoAutorizadoException("Solo un ADMINISTRADOR o EMPLEADO puede eliminar vehículos.");
+        if (usuarioLogueado.getRol() != RolUsuario.ADMINISTRADOR) {
+            throw new UsuarioNoAutorizadoException("Solo un ADMINISTRADOR puede desactivar vehículos.");
         }
-        List<Vehiculo> listaVehiculos = repoVehiculos.listar();
+        List<Vehiculo> listaVehiculos = vehiculosActivos();
         if (indice < 0 || listaVehiculos.isEmpty() || indice >= listaVehiculos.size()) return "Vehículo inválido";
         Vehiculo v = listaVehiculos.get(indice);
         if (v == null) return "Vehículo inválido";
-        java.util.ArrayList<Ocupacion> ocupacionesVehiculo = new java.util.ArrayList<Ocupacion>();
         for (Ocupacion o : repoOcupaciones.listar()) {
-            if (o != null && o.getVehiculo() != null && o.getVehiculo().getPatente().equals(v.getPatente())) {
-                if (o.estaActiva()) {
-                    return "No se puede eliminar el vehículo: tiene una ocupación activa.";
-                }
-                ocupacionesVehiculo.add(o);
+            if (o != null && o.getVehiculo() != null && o.getVehiculo().getPatente().equals(v.getPatente())
+                    && o.estaActiva()) {
+                return "No se puede desactivar el vehículo: tiene una ocupación activa.";
             }
         }
-        java.util.ArrayList<Reserva> aEliminar = new java.util.ArrayList<Reserva>();
+        int reservasDesactivadas = 0;
         for (Reserva r : repoReservas.listar()) {
-            if (r != null && r.getVehiculo() != null && r.getVehiculo().getPatente().equals(v.getPatente())) {
-                aEliminar.add(r);
+            if (r != null && r.isActivo() && r.getVehiculo() != null
+                    && r.getVehiculo().getPatente().equals(v.getPatente())) {
+                r.setActivo(false);
+                gestorBaseDatos.actualizarActivoReserva(r.getIdReserva(), false);
+                reservasDesactivadas++;
             }
         }
-        for (Reserva r : aEliminar) {
-            repoReservas.eliminar(r.getIdReserva());
-            GestorBaseDatos.eliminarReserva(r.getIdReserva());
-        }
-        for (Ocupacion o : ocupacionesVehiculo) {
-            repoOcupaciones.eliminar(o.getIdOcupacion());
-            gestorBaseDatos.eliminarOcupacionCompleta(o.getIdOcupacion());
-        }
-        repoVehiculos.eliminar(v.getPatente());
-        GestorBaseDatos.eliminarVehiculo(v.getPatente());
-        recargarOcupacionesDesdeBD();
-        return "Vehículo eliminado correctamente. Se eliminaron " + aEliminar.size() + " reserva(s) y "
-                + ocupacionesVehiculo.size() + " ocupación(es) asociada(s).";
+        v.setActivo(false);
+        gestorBaseDatos.actualizarActivoVehiculo(v.getPatente(), false);
+        return "Vehículo desactivado correctamente. Se desactivaron " + reservasDesactivadas + " reserva(s).";
     }
 
-    public String eliminarReserva(int indice) {
+    public String desactivarReserva(int indice) {
         if (usuarioLogueado == null) return "Debe iniciar sesión primero";
-        if (usuarioLogueado.getRol() != RolUsuario.ADMINISTRADOR && usuarioLogueado.getRol() != RolUsuario.EMPLEADO) {
-            throw new UsuarioNoAutorizadoException("Solo un ADMINISTRADOR o EMPLEADO puede eliminar reservas.");
+        if (usuarioLogueado.getRol() != RolUsuario.ADMINISTRADOR) {
+            throw new UsuarioNoAutorizadoException("Solo un ADMINISTRADOR puede desactivar reservas.");
         }
-        List<Reserva> reservasActuales = repoReservas.listar();
+        List<Reserva> reservasActuales = reservasActivas();
         if (indice < 0 || indice >= reservasActuales.size()) return "Reserva inválida";
         Reserva r = reservasActuales.get(indice);
         if (r == null) return "Reserva inválida";
-        java.util.ArrayList<Ocupacion> ocupacionesReserva = new java.util.ArrayList<Ocupacion>();
         for (Ocupacion o : repoOcupaciones.listar()) {
-            if (o != null && o.getReserva() != null && o.getReserva().getIdReserva().equals(r.getIdReserva())) {
-                if (o.estaActiva()) {
-                    return "No se puede eliminar la reserva: tiene una ocupación activa.";
-                }
-                ocupacionesReserva.add(o);
+            if (o != null && o.getReserva() != null && o.getReserva().getIdReserva().equals(r.getIdReserva())
+                    && o.estaActiva()) {
+                return "No se puede desactivar la reserva: tiene una ocupación activa.";
             }
         }
-        for (Ocupacion o : ocupacionesReserva) {
-            repoOcupaciones.eliminar(o.getIdOcupacion());
-            gestorBaseDatos.eliminarOcupacionCompleta(o.getIdOcupacion());
-        }
-        repoReservas.eliminar(r.getIdReserva());
-        GestorBaseDatos.eliminarReserva(r.getIdReserva());
-        recargarOcupacionesDesdeBD();
-        return "Reserva eliminada correctamente. Se eliminaron " + ocupacionesReserva.size() + " ocupación(es) asociada(s).";
+        r.setActivo(false);
+        gestorBaseDatos.actualizarActivoReserva(r.getIdReserva(), false);
+        return "Reserva desactivada correctamente.";
     }
 
     private void recargarOcupacionesDesdeBD() {
@@ -630,6 +660,12 @@ public class SistemaAlquiler {
     }
 
     public String listarUsuarios() {
+        if (usuarioLogueado == null) {
+            return "Debe iniciar sesión para listar usuarios.";
+        }
+        if (usuarioLogueado.getRol() != RolUsuario.ADMINISTRADOR) {
+            throw new UsuarioNoAutorizadoException("Solo un ADMINISTRADOR puede listar usuarios.");
+        }
         StringBuilder sb = new StringBuilder();
         sb.append("\n--- USUARIOS ---\n");
         try {
@@ -651,28 +687,28 @@ public class SistemaAlquiler {
         return sb.toString();
     }
 
-    public String eliminarUsuarioPorIndice(int indice) {
+    public String desactivarUsuarioPorIndice(int indice) {
         try {
             List<Usuario> listaUsuarios = repoUsuarios.listar();
             if (listaUsuarios == null || listaUsuarios.isEmpty()) return "No hay usuarios registrados.";
             if (indice < 0 || indice >= listaUsuarios.size()) return "Indice de usuario invalido.";
-            return eliminarUsuario(listaUsuarios.get(indice).getUsername());
+            return desactivarUsuario(listaUsuarios.get(indice).getUsername());
         } catch (UsuarioNoAutorizadoException ex) {
             throw ex;
         } catch (Exception e) {
-            return "Error al eliminar usuario: " + e.getMessage();
+            return "Error al desactivar usuario: " + e.getMessage();
         }
     }
 
-    public String eliminarUsuario(String nombreUsuario) {
+    public String desactivarUsuario(String nombreUsuario) {
         if (usuarioLogueado == null) return "Debe iniciar sesión primero";
         if (usuarioLogueado.getRol() != RolUsuario.ADMINISTRADOR) {
-            throw new UsuarioNoAutorizadoException("Solo un ADMINISTRADOR puede eliminar usuarios.");
+            throw new UsuarioNoAutorizadoException("Solo un ADMINISTRADOR puede desactivar usuarios.");
         }
         if (nombreUsuario == null || nombreUsuario.isEmpty()) return "Nombre de usuario inválido";
-        if (ADMIN_USERNAME.equals(nombreUsuario)) return "No se puede eliminar el usuario por defecto";
+        if (ADMIN_USERNAME.equals(nombreUsuario)) return "No se puede desactivar el usuario por defecto";
         if (usuarioLogueado.getUsername() != null && usuarioLogueado.getUsername().equals(nombreUsuario)) {
-            return "No puede eliminar el usuario con el que está logueado.";
+            return "No puede desactivar el usuario con el que está logueado.";
         }
         try {
             Usuario u = null;
@@ -683,20 +719,18 @@ public class SistemaAlquiler {
                 }
             }
             if (u == null) return "Usuario no encontrado";
-            String idUsuario = u.getIdUsuario();
-            repoUsuarios.eliminar(idUsuario);
-            repoEmpleados.eliminar(idUsuario);
-            gestorBaseDatos.eliminarUsuarioPorId(idUsuario);
-            GestorBaseDatos.eliminarEmpleado(idUsuario);
-            return "Usuario eliminado correctamente.";
+            if (!u.isActivo()) return "El usuario ya está inactivo.";
+            u.setActivo(false);
+            gestorBaseDatos.actualizarActivoUsuario(u.getIdUsuario(), false);
+            return "Usuario desactivado correctamente.";
         } catch (Exception e) {
-            return "Error al eliminar usuario: " + e.getMessage();
+            return "Error al desactivar usuario: " + e.getMessage();
         }
     }
 
     private ArrayList<Reserva> reservasPendientes() {
         ArrayList<Reserva> pendientes = new ArrayList<Reserva>();
-        for (Reserva reserva : repoReservas.listar()) {
+        for (Reserva reserva : reservasActivas()) {
             if (reserva != null && reserva.getEstado() == EstadoReserva.PENDIENTE) {
                 pendientes.add(reserva);
             }
@@ -705,6 +739,12 @@ public class SistemaAlquiler {
     }
 
     public String getReservaInfo(int idx) {
+        if (usuarioLogueado == null) {
+            return "Debe iniciar sesión para consultar reservas.";
+        }
+        if (usuarioLogueado.getRol() != RolUsuario.ADMINISTRADOR && usuarioLogueado.getRol() != RolUsuario.EMPLEADO) {
+            throw new UsuarioNoAutorizadoException("Solo un ADMINISTRADOR o EMPLEADO puede consultar reservas para entrega.");
+        }
         List<Reserva> reservasActuales = reservasPendientes();
         if (reservasActuales.isEmpty()) return "No hay reservas pendientes";
         if (idx < 0 || idx >= reservasActuales.size()) return "";
@@ -865,17 +905,20 @@ public class SistemaAlquiler {
     }
 
     public String verHistorialCliente() {
-        if (usuarioLogueado != null && usuarioLogueado.getRol() == RolUsuario.CLIENTE) {
+        if (usuarioLogueado == null) {
+            return "Debe iniciar sesión para ver el historial de clientes.";
+        }
+        if (usuarioLogueado.getRol() != RolUsuario.ADMINISTRADOR && usuarioLogueado.getRol() != RolUsuario.EMPLEADO) {
             throw new UsuarioNoAutorizadoException("Un usuario CLIENTE no puede ver el historial de todos los clientes.");
         }
-        List<Cliente> clientesActuales = repoClientes.listar();
+        List<Cliente> clientesActuales = clientesActivos();
         if (clientesActuales.isEmpty()) {
             return "No hay clientes.";
         }
         StringBuilder sb = new StringBuilder();
         sb.append("\n--- HISTORIAL DE CLIENTES ---\n");
         java.util.HashSet<String> clientesConHistorial = new java.util.HashSet<String>();
-        java.util.ArrayList<Reserva> reservasActuales = new java.util.ArrayList<Reserva>(repoReservas.listar());
+        java.util.ArrayList<Reserva> reservasActuales = new java.util.ArrayList<Reserva>(reservasActivas());
         for (Reserva r : reservasActuales) {
             if (r != null && r.getCliente() != null) {
                 clientesConHistorial.add(r.getCliente().getId());
@@ -961,7 +1004,7 @@ public class SistemaAlquiler {
         StringBuilder sb = new StringBuilder();
         sb.append("\n--- AUTOMOVILES (POLIMORFISMO) ---\n");
         try {
-            List<Vehiculo> flota = repoVehiculos.listar();
+            List<Vehiculo> flota = vehiculosActivos();
             for (Vehiculo v : flota) {
                 if (v != null) {
                     sb.append(v.getClass().getSimpleName()).append(": ").append(v.getPatente()).append(" - ")
@@ -995,6 +1038,7 @@ public class SistemaAlquiler {
         if (patente == null || patente.trim().isEmpty()) {
             return "La patente no puede estar vacía.";
         }
+        patente = patente.trim();
 
         if (marca == null || marca.trim().isEmpty()) {
             return "La marca no puede estar vacía.";
@@ -1037,6 +1081,10 @@ public class SistemaAlquiler {
             return "La transmisión no puede estar vacía.";
         }
 
+        if (estadoTexto == null || estadoTexto.trim().isEmpty()) {
+            return "Estado inválido. Use: DISPONIBLE, EN_LIMPIEZA, EN_REPARACION o FUERA_SERVICIO.";
+        }
+
         String transmisionNormalizada = transmision.trim().toUpperCase();
         if (!transmisionNormalizada.equals(Automovil.TRANSMISION_MANUAL) &&
                 !transmisionNormalizada.equals(Automovil.TRANSMISION_AUTOMATICA)) {
@@ -1044,8 +1092,11 @@ public class SistemaAlquiler {
         }
 
         try {
-            if (repoVehiculos.buscar(patente).isPresent()) {
-                return "Ya existe un vehículo con esa patente.";
+            for (Vehiculo existente : repoVehiculos.listar()) {
+                if (existente != null && existente.getPatente() != null
+                        && existente.getPatente().equalsIgnoreCase(patente.trim())) {
+                    return "Ya existe un vehículo con esa patente.";
+                }
             }
 
             EstadoVehiculo estadoVehiculo;
@@ -1074,7 +1125,7 @@ public class SistemaAlquiler {
     public String getVehiculoInfo(int idx) {
         try {
             java.util.ArrayList<Vehiculo> contenedorGenerico = new java.util.ArrayList<Vehiculo>();
-            for (Vehiculo vehiculo : repoVehiculos.listar()) {
+            for (Vehiculo vehiculo : vehiculosActivos()) {
                 if (vehiculo != null && vehiculo.getEstado() == enums.EstadoVehiculo.DISPONIBLE) {
                     contenedorGenerico.add(vehiculo);
                 }
@@ -1094,7 +1145,7 @@ public class SistemaAlquiler {
         StringBuilder sb = new StringBuilder();
         sb.append("\n--- TODOS LOS VEHICULOS ---\n");
         try {
-            List<Vehiculo> vehiculos = repoVehiculos.listar();
+            List<Vehiculo> vehiculos = vehiculosActivos();
             if (vehiculos.isEmpty()) {
                 sb.append("No hay vehiculos registrados.\n");
                 return sb.toString();
@@ -1120,22 +1171,22 @@ public class SistemaAlquiler {
             return "Debe iniciar sesion primero.";
         }
         if (usuarioLogueado.getRol() != RolUsuario.ADMINISTRADOR && usuarioLogueado.getRol() != RolUsuario.EMPLEADO) {
-            return "Solo un ADMINISTRADOR o EMPLEADO puede modificar el estado de un vehiculo.";
+            throw new UsuarioNoAutorizadoException("Solo un ADMINISTRADOR o EMPLEADO puede modificar el estado de un vehiculo.");
         }
         if (nuevoEstadoTexto == null || nuevoEstadoTexto.trim().isEmpty()) {
-            return "Estado invalido.";
+            return "Estado inválido.";
         }
         EstadoVehiculo nuevoEstado;
         try {
             nuevoEstado = EstadoVehiculo.valueOf(nuevoEstadoTexto.trim().toUpperCase());
         } catch (IllegalArgumentException e) {
-            return "Estado invalido. Use: DISPONIBLE, EN_LIMPIEZA, EN_REPARACION o FUERA_SERVICIO.";
+            return "Estado inválido. Use: DISPONIBLE, EN_LIMPIEZA, EN_REPARACION o FUERA_SERVICIO.";
         }
         if (nuevoEstado == EstadoVehiculo.ALQUILADO) {
             return "ALQUILADO se gestiona automaticamente con las entregas.";
         }
         try {
-            List<Vehiculo> vehiculos = repoVehiculos.listar();
+            List<Vehiculo> vehiculos = vehiculosActivos();
             if (vehiculos.isEmpty()) {
                 return "No hay vehiculos registrados.";
             }
@@ -1145,6 +1196,13 @@ public class SistemaAlquiler {
             Vehiculo v = vehiculos.get(indice);
             if (v == null) {
                 return "Vehiculo invalido.";
+            }
+            for (Ocupacion ocupacion : repoOcupaciones.listar()) {
+                if (ocupacion != null && ocupacion.estaActiva() && ocupacion.getVehiculo() != null
+                        && v.getPatente() != null
+                        && v.getPatente().equals(ocupacion.getVehiculo().getPatente())) {
+                    return "No se puede modificar el estado: el vehiculo tiene una ocupacion activa.";
+                }
             }
             EstadoVehiculo anterior = v.getEstado();
             v.setEstado(nuevoEstado);
@@ -1272,43 +1330,11 @@ public class SistemaAlquiler {
         return null;
     }
 
-    public String limpiarDatosBD() {
-        if (usuarioLogueado == null) {
-            return "Debe iniciar sesión para realizar esta acción.";
-        }
-        if (usuarioLogueado.getRol() != RolUsuario.ADMINISTRADOR) {
-            throw new UsuarioNoAutorizadoException("Solo un ADMINISTRADOR puede limpiar la base de datos.");
-        }
-        gestorBaseDatos.limpiarDatosExceptoMariano();
-        repoClientes.limpiar();
-        repoReservas.limpiar();
-        repoEmpleados.limpiar();
-        repoVehiculos.limpiar();
-        repoOcupaciones.limpiar();
-        repoUsuarios.limpiar();
-        servicioAlquiler.cargarOcupaciones(new ArrayList<Ocupacion>());
-        try {
-            Usuario admin = gestorBaseDatos.leerUsuarioPorUsername(ADMIN_USERNAME);
-            if (admin != null) {
-                repoUsuarios.guardar(admin.getIdUsuario(), admin);
-                Empleado empleadoAdmin = construirEmpleadoAdmin(admin.getIdUsuario());
-                repoEmpleados.guardar(empleadoAdmin.getId(), empleadoAdmin);
-                gestorBaseDatos.guardarEmpleado(empleadoAdmin);
-                if (usuarioLogueado != null && ADMIN_USERNAME.equals(usuarioLogueado.getUsername())) {
-                    usuarioLogueado.setEmpleado(empleadoAdmin);
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        if (usuarioLogueado != null && !ADMIN_USERNAME.equals(usuarioLogueado.getUsername())) {
-            usuarioLogueado = null;
-        }
-        return "Datos limpiados correctamente. Solo se mantiene el usuario mariano.";
-    }
-
     public boolean hayOcupacionesActivas() {
         for (Ocupacion ocupacion : repoOcupaciones.listar()) {
-            if (ocupacion != null && ocupacion.estaActiva()) {
+            if (ocupacion != null && ocupacion.estaActiva()
+                    && ocupacion.getCliente() != null && ocupacion.getCliente().isActivo()
+                    && ocupacion.getVehiculo() != null && ocupacion.getVehiculo().isActivo()) {
                 return true;
             }
         }
@@ -1316,11 +1342,11 @@ public class SistemaAlquiler {
     }
 
     public java.util.ArrayList<Reserva> getReservas() {
-        return new java.util.ArrayList<Reserva>(repoReservas.listar());
+        return new java.util.ArrayList<Reserva>(reservasActivas());
     }
 
     public java.util.ArrayList<Cliente> getClientes() {
-        return new java.util.ArrayList<Cliente>(repoClientes.listar());
+        return new java.util.ArrayList<Cliente>(clientesActivos());
     }
 
     public Usuario getUsuarioLogueado() {

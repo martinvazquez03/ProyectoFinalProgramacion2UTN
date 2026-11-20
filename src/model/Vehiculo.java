@@ -12,6 +12,7 @@ public abstract class Vehiculo implements Alquilable {
     protected EstadoVehiculo estado;
     protected double precioDia;
     protected double tarifaSeguro;
+    protected boolean activo;
 
     public Vehiculo(String patente, String marca, String modelo, int anio, int kilometraje,
                     EstadoVehiculo estado, double precioDia, double tarifaSeguro) {
@@ -23,6 +24,7 @@ public abstract class Vehiculo implements Alquilable {
         this.estado = estado;
         this.precioDia = precioDia;
         this.tarifaSeguro = tarifaSeguro;
+        this.activo = true;
     }
 
     public boolean estaDisponible() {
@@ -52,6 +54,8 @@ public abstract class Vehiculo implements Alquilable {
     public void setPrecioDia(double precioDia) { this.precioDia = precioDia; }
     public double getTarifaSeguro() { return tarifaSeguro; }
     public void setTarifaSeguro(double tarifaSeguro) { this.tarifaSeguro = tarifaSeguro; }
+    public boolean isActivo() { return activo; }
+    public void setActivo(boolean activo) { this.activo = activo; }
 
     @Override
     public String toString() {

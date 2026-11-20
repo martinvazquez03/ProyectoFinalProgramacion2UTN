@@ -14,6 +14,7 @@ public class Reserva implements Auditable {
     private LocalDateTime fechaReserva;
     private EstadoReserva estado;
     private String creadoPor;
+    private boolean activo;
 
     public Reserva(String idReserva, Cliente cliente, Vehiculo vehiculo, LocalDate fechaInicio, LocalDate fechaFin,
                    LocalDateTime fechaReserva, EstadoReserva estado, String creadoPor) {
@@ -25,6 +26,7 @@ public class Reserva implements Auditable {
         this.fechaReserva = fechaReserva;
         this.estado = estado;
         this.creadoPor = creadoPor;
+        this.activo = true;
     }
 
     public boolean validar() {
@@ -71,6 +73,8 @@ public class Reserva implements Auditable {
     public void setFechaReserva(LocalDateTime fechaReserva) { this.fechaReserva = fechaReserva; }
     public EstadoReserva getEstado() { return estado; }
     public void setEstado(EstadoReserva estado) { this.estado = estado; }
+    public boolean isActivo() { return activo; }
+    public void setActivo(boolean activo) { this.activo = activo; }
     public double getMontoSenia() { return vehiculo != null ? vehiculo.getTarifaSeguro() : 0.0; }
 
     @Override

@@ -35,7 +35,8 @@ public class GestorBaseDatos {
                     "precio_dia REAL," +
                     "tarifa_seguro REAL," +
                     "tipo TEXT," +
-                    "datos_especificos TEXT" +
+                    "datos_especificos TEXT," +
+                    "activo INTEGER DEFAULT 1" +
                     ")";
             stmt.execute(sqlVehiculo);
             String sqlUsuario = "CREATE TABLE IF NOT EXISTS usuario (" +
@@ -43,7 +44,7 @@ public class GestorBaseDatos {
                     "username TEXT UNIQUE," +
                     "password_hash TEXT," +
                     "rol TEXT," +
-                    "activo INTEGER" +
+                    "activo INTEGER DEFAULT 1" +
                     ")";
             stmt.execute(sqlUsuario);
             String sqlCliente = "CREATE TABLE IF NOT EXISTS cliente (" +
@@ -53,7 +54,8 @@ public class GestorBaseDatos {
                     "dni TEXT," +
                     "telefono TEXT," +
                     "email TEXT," +
-                    "fecha_registro TEXT" +
+                    "fecha_registro TEXT," +
+                    "activo INTEGER DEFAULT 1" +
                     ")";
             stmt.execute(sqlCliente);
             String sqlEmpleado = "CREATE TABLE IF NOT EXISTS empleado (" +
@@ -75,7 +77,8 @@ public class GestorBaseDatos {
                     "fecha_fin TEXT," +
                     "fecha_reserva TEXT," +
                     "estado TEXT," +
-                    "creado_por TEXT" +
+                    "creado_por TEXT," +
+                    "activo INTEGER DEFAULT 1" +
                     ")";
             stmt.execute(sqlReserva);
             String sqlOcupacion = "CREATE TABLE IF NOT EXISTS ocupacion (" +
@@ -118,6 +121,11 @@ public class GestorBaseDatos {
             agregarColumnaSiFalta(conexion, "ocupacion", "fecha_reserva", "TEXT");
             agregarColumnaSiFalta(conexion, "ocupacion", "fecha_inicio_reserva", "TEXT");
             agregarColumnaSiFalta(conexion, "devolucion", "observaciones", "TEXT");
+            agregarColumnaSiFalta(conexion, "cliente", "activo", "INTEGER DEFAULT 1");
+            agregarColumnaSiFalta(conexion, "vehiculo", "activo", "INTEGER DEFAULT 1");
+            agregarColumnaSiFalta(conexion, "reserva", "activo", "INTEGER DEFAULT 1");
+            agregarColumnaSiFalta(conexion, "usuario", "activo", "INTEGER DEFAULT 1");
+            inicializarActivos(conexion);
             migrarCreadoPorAUsername(conexion);
             eliminarColumnaSiExiste(conexion, "reserva", "monto_senia");
             eliminarColumnaSiExiste(conexion, "empleado", "fecha_contratacion");
@@ -158,6 +166,17 @@ public class GestorBaseDatos {
         }
     }
 
+    private void inicializarActivos(Connection conexion) {
+        try (java.sql.Statement stmt = conexion.createStatement()) {
+            stmt.executeUpdate("UPDATE cliente SET activo = 1 WHERE activo IS NULL");
+            stmt.executeUpdate("UPDATE vehiculo SET activo = 1 WHERE activo IS NULL");
+            stmt.executeUpdate("UPDATE reserva SET activo = 1 WHERE activo IS NULL");
+            stmt.executeUpdate("UPDATE usuario SET activo = 1 WHERE activo IS NULL");
+        } catch (SQLException excepcion) {
+            System.err.println("No se pudo inicializar el estado activo: " + excepcion.getMessage());
+        }
+    }
+
     private void eliminarEstadoVehiculoReservado(Connection conexion) {
         try (java.sql.Statement stmt = conexion.createStatement()) {
             stmt.executeUpdate("UPDATE vehiculo SET estado = 'DISPONIBLE' WHERE estado = 'RESERVADO'");
@@ -192,7 +211,7 @@ public class GestorBaseDatos {
     }
 
     public void guardarCliente(Cliente cliente) {
-        String sql = "INSERT OR REPLACE INTO cliente (id_cliente, nombre, apellido, dni, telefono, email, fecha_registro) VALUES (?, ?, ?, ?, ?, ?, ?)";
+        String sql = "INSERT OR REPLACE INTO cliente (id_cliente, nombre, apellido, dni, telefono, email, fecha_registro, activo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
         try (Connection conexion = ConnectionFactory.getConnection();
              PreparedStatement sentencia = conexion.prepareStatement(sql)) {
             sentencia.setString(1, cliente.getId());
@@ -202,6 +221,7 @@ public class GestorBaseDatos {
             sentencia.setString(5, cliente.getTelefono());
             sentencia.setString(6, cliente.getEmail());
             sentencia.setString(7, cliente.getFechaRegistro() != null ? cliente.getFechaRegistro().toString() : java.time.LocalDate.now().toString());
+            sentencia.setBoolean(8, cliente.isActivo());
             sentencia.executeUpdate();
         } catch (SQLException excepcion) {
             System.err.println("Error al guardar cliente en BD: " + excepcion.getMessage());
@@ -227,7 +247,7 @@ public class GestorBaseDatos {
     }
 
     public void guardarReserva(Reserva reserva) {
-        String sql = "INSERT OR IGNORE INTO reserva (id_reserva, id_cliente, patente, fecha_inicio, fecha_fin, fecha_reserva, estado, creado_por) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+        String sql = "INSERT OR IGNORE INTO reserva (id_reserva, id_cliente, patente, fecha_inicio, fecha_fin, fecha_reserva, estado, creado_por, activo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
         try (Connection conexion = ConnectionFactory.getConnection();
              PreparedStatement sentencia = conexion.prepareStatement(sql)) {
             if (reserva.getCliente() == null || reserva.getVehiculo() == null) {
@@ -241,6 +261,7 @@ public class GestorBaseDatos {
             sentencia.setString(6, reserva.getFechaReserva() != null ? reserva.getFechaReserva().toString() : java.time.LocalDateTime.now().toString());
             sentencia.setString(7, reserva.getEstado() != null ? reserva.getEstado().name() : null);
             sentencia.setString(8, reserva.getCreadoPor());
+            sentencia.setBoolean(9, reserva.isActivo());
             sentencia.executeUpdate();
         } catch (SQLException excepcion) {
             System.err.println("Error al guardar reserva en BD: " + excepcion.getMessage());
@@ -260,6 +281,35 @@ public class GestorBaseDatos {
         }
     }
 
+    public void actualizarActivoCliente(String idCliente, boolean activo) {
+        actualizarActivo("cliente", "id_cliente", idCliente, activo);
+    }
+
+    public void actualizarActivoVehiculo(String patente, boolean activo) {
+        actualizarActivo("vehiculo", "patente", patente, activo);
+    }
+
+    public void actualizarActivoReserva(String idReserva, boolean activo) {
+        actualizarActivo("reserva", "id_reserva", idReserva, activo);
+    }
+
+    public void actualizarActivoUsuario(String idUsuario, boolean activo) {
+        actualizarActivo("usuario", "id_usuario", idUsuario, activo);
+    }
+
+    private void actualizarActivo(String tabla, String columnaId, String id, boolean activo) {
+        if (id == null) return;
+        String sql = "UPDATE " + tabla + " SET activo = ? WHERE " + columnaId + " = ?";
+        try (Connection conexion = ConnectionFactory.getConnection();
+             PreparedStatement sentencia = conexion.prepareStatement(sql)) {
+            sentencia.setBoolean(1, activo);
+            sentencia.setString(2, id);
+            sentencia.executeUpdate();
+        } catch (SQLException excepcion) {
+            System.err.println("Error al actualizar estado activo de " + tabla + ": " + excepcion.getMessage());
+        }
+    }
+
     public static void eliminarReserva(String idReserva) {
         if (idReserva == null) return;
         String sql = "DELETE FROM reserva WHERE id_reserva = ?";
@@ -271,27 +321,6 @@ public class GestorBaseDatos {
         }
     }
 
-    public static void eliminarCliente(String idCliente) {
-        if (idCliente == null) return;
-        String sql = "DELETE FROM cliente WHERE id_cliente = ?";
-        try (Connection conn = ConnectionFactory.getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, idCliente);
-            ps.executeUpdate();
-        } catch (Exception e) {
-            System.out.println("Error al eliminar cliente: " + e.getMessage());
-        }
-    }
-
-    public static void eliminarVehiculo(String patente) {
-        if (patente == null) return;
-        String sql = "DELETE FROM vehiculo WHERE patente = ?";
-        try (Connection conn = ConnectionFactory.getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, patente);
-            ps.executeUpdate();
-        } catch (Exception e) {
-            System.out.println("Error al eliminar vehiculo: " + e.getMessage());
-        }
-    }
 
     public void guardarUsuario(Usuario usuario) throws BaseDatosException {
         String sql = "INSERT INTO usuario (id_usuario, username, password_hash, rol, activo) VALUES (?, ?, ?, ?, ?)";
@@ -355,16 +384,6 @@ public class GestorBaseDatos {
         return listaUsuarios;
     }
 
-    public void eliminarUsuarioPorId(String idUsuario) throws BaseDatosException {
-        String sql = "DELETE FROM usuario WHERE id_usuario = ?";
-        try (Connection conexion = ConnectionFactory.getConnection();
-             PreparedStatement sentencia = conexion.prepareStatement(sql)) {
-            sentencia.setString(1, idUsuario);
-            sentencia.executeUpdate();
-        } catch (SQLException excepcion) {
-            throw new BaseDatosException("Error al eliminar usuario", excepcion);
-        }
-    }
 
     private Usuario mapearUsuario(ResultSet resultado) throws SQLException {
         return new Usuario(
@@ -441,41 +460,6 @@ public class GestorBaseDatos {
         }
     }
 
-    public void eliminarOcupacionCompleta(String idOcupacion) {
-        if (idOcupacion == null) return;
-        try (Connection conexion = ConnectionFactory.getConnection()) {
-            try (PreparedStatement sentencia = conexion.prepareStatement("DELETE FROM devolucion WHERE id_ocupacion = ?")) {
-                sentencia.setString(1, idOcupacion);
-                sentencia.executeUpdate();
-            }
-            try (PreparedStatement sentencia = conexion.prepareStatement("DELETE FROM entrega WHERE id_ocupacion = ?")) {
-                sentencia.setString(1, idOcupacion);
-                sentencia.executeUpdate();
-            }
-            try (PreparedStatement sentencia = conexion.prepareStatement("DELETE FROM ocupacion WHERE id_ocupacion = ?")) {
-                sentencia.setString(1, idOcupacion);
-                sentencia.executeUpdate();
-            }
-        } catch (SQLException excepcion) {
-            System.err.println("Error al eliminar ocupacion: " + excepcion.getMessage());
-        }
-    }
-
-    public void limpiarDatosExceptoMariano() {
-        try (Connection conexion = ConnectionFactory.getConnection();
-             java.sql.Statement stmt = conexion.createStatement()) {
-            stmt.executeUpdate("DELETE FROM devolucion");
-            stmt.executeUpdate("DELETE FROM entrega");
-            stmt.executeUpdate("DELETE FROM ocupacion");
-            stmt.executeUpdate("DELETE FROM reserva");
-            stmt.executeUpdate("DELETE FROM vehiculo");
-            stmt.executeUpdate("DELETE FROM cliente");
-            stmt.executeUpdate("DELETE FROM empleado");
-            stmt.executeUpdate("DELETE FROM usuario WHERE username != 'mariano'");
-        } catch (SQLException excepcion) {
-            System.err.println("Error al limpiar datos: " + excepcion.getMessage());
-        }
-    }
 
     public java.util.ArrayList<model.Cliente> leerClientes() {
         java.util.ArrayList<model.Cliente> lista = new java.util.ArrayList<model.Cliente>();
@@ -500,6 +484,7 @@ public class GestorBaseDatos {
                         resultado.getString("email"),
                         fecha
                 );
+                cliente.setActivo(resultado.getInt("activo") != 0);
                 lista.add(cliente);
             }
         } catch (SQLException excepcion) {
@@ -509,7 +494,7 @@ public class GestorBaseDatos {
     }
 
     public void guardarVehiculo(Vehiculo vehiculo) throws BaseDatosException {
-        String sql = "INSERT INTO vehiculo (patente, marca, modelo, anio, kilometraje, estado, precio_dia, tarifa_seguro, tipo, datos_especificos) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        String sql = "INSERT INTO vehiculo (patente, marca, modelo, anio, kilometraje, estado, precio_dia, tarifa_seguro, tipo, datos_especificos, activo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         try (Connection conexion = ConnectionFactory.getConnection();
              PreparedStatement sentencia = conexion.prepareStatement(sql)) {
             sentencia.setString(1, vehiculo.getPatente());
@@ -522,6 +507,7 @@ public class GestorBaseDatos {
             sentencia.setDouble(8, vehiculo.getTarifaSeguro());
             sentencia.setString(9, tipoDe(vehiculo));
             sentencia.setString(10, datosEspecificosDe(vehiculo));
+            sentencia.setBoolean(11, vehiculo.isActivo());
             sentencia.executeUpdate();
         } catch (SQLException excepcion) {
             throw new BaseDatosException("Error al guardar vehiculo", excepcion);
@@ -545,7 +531,7 @@ public class GestorBaseDatos {
     }
 
     public void actualizarVehiculo(Vehiculo vehiculo) throws BaseDatosException {
-        String sql = "UPDATE vehiculo SET marca = ?, modelo = ?, anio = ?, kilometraje = ?, estado = ?, precio_dia = ?, tarifa_seguro = ?, tipo = ?, datos_especificos = ? WHERE patente = ?";
+        String sql = "UPDATE vehiculo SET marca = ?, modelo = ?, anio = ?, kilometraje = ?, estado = ?, precio_dia = ?, tarifa_seguro = ?, tipo = ?, datos_especificos = ?, activo = ? WHERE patente = ?";
         try (Connection conexion = ConnectionFactory.getConnection();
              PreparedStatement sentencia = conexion.prepareStatement(sql)) {
             sentencia.setString(1, vehiculo.getMarca());
@@ -557,7 +543,8 @@ public class GestorBaseDatos {
             sentencia.setDouble(7, vehiculo.getTarifaSeguro());
             sentencia.setString(8, tipoDe(vehiculo));
             sentencia.setString(9, datosEspecificosDe(vehiculo));
-            sentencia.setString(10, vehiculo.getPatente());
+            sentencia.setBoolean(10, vehiculo.isActivo());
+            sentencia.setString(11, vehiculo.getPatente());
             sentencia.executeUpdate();
         } catch (SQLException excepcion) {
             throw new BaseDatosException("Error al actualizar vehiculo", excepcion);
@@ -629,8 +616,10 @@ public class GestorBaseDatos {
         if ("AUTOMATICO".equalsIgnoreCase(transmision)) {
             transmision = Automovil.TRANSMISION_AUTOMATICA;
         }
-        return new Automovil(patente, marca, modelo, anio, kilometraje, estado, precioDia, tarifaSeguro,
-                cantidadPuertas, transmision);
+        Automovil automovil = new Automovil(patente, marca, modelo, anio, kilometraje, estado, precioDia,
+                tarifaSeguro, cantidadPuertas, transmision);
+        automovil.setActivo(resultado.getInt("activo") != 0);
+        return automovil;
     }
 
     public java.util.ArrayList<model.Empleado> leerEmpleados() {
@@ -680,16 +669,6 @@ public class GestorBaseDatos {
         );
     }
 
-    public static void eliminarEmpleado(String idEmpleado) {
-        if (idEmpleado == null) return;
-        String sql = "DELETE FROM empleado WHERE id_empleado = ?";
-        try (Connection conn = ConnectionFactory.getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, idEmpleado);
-            ps.executeUpdate();
-        } catch (Exception e) {
-            System.out.println("Error al eliminar empleado: " + e.getMessage());
-        }
-    }
 
     public java.util.ArrayList<model.Reserva> leerReservas(java.util.ArrayList<model.Cliente> listaClientes, java.util.ArrayList<model.Vehiculo> listaVehiculos) {
         java.util.ArrayList<model.Reserva> lista = new java.util.ArrayList<model.Reserva>();
@@ -741,6 +720,7 @@ public class GestorBaseDatos {
                         estado,
                         creadoPor != null ? creadoPor : ""
                 );
+                reserva.setActivo(resultado.getInt("activo") != 0);
                 lista.add(reserva);
             }
         } catch (SQLException excepcion) {

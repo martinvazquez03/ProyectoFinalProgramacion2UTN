@@ -41,18 +41,33 @@ public class ServicioAlquilerImpl implements ServicioAlquiler {
         if (reserva.getVehiculo() == null) {
             throw new VehiculoNoDisponibleException("SIN_PATENTE");
         }
+        if (reserva.getCliente() == null) {
+            throw new ReservaInvalidaException("La reserva no tiene un cliente asociado.");
+        }
+        if (!reserva.getCliente().isActivo()) {
+            throw new ReservaInvalidaException("El cliente de la reserva está inactivo.");
+        }
+        if (!reserva.getVehiculo().isActivo()) {
+            throw new VehiculoNoDisponibleException(reserva.getVehiculo().getPatente(), "INACTIVO");
+        }
         if (reserva.getVehiculo().getEstado() == EstadoVehiculo.ALQUILADO) {
             throw new VehiculoNoDisponibleException(reserva.getVehiculo().getPatente(), reserva.getVehiculo().getEstado().toString());
         }
         if (reserva.getVehiculo().getEstado() == EstadoVehiculo.EN_REPARACION || reserva.getVehiculo().getEstado() == EstadoVehiculo.EN_LIMPIEZA || reserva.getVehiculo().getEstado() == EstadoVehiculo.FUERA_SERVICIO) {
             throw new VehiculoNoDisponibleException(reserva.getVehiculo().getPatente(), reserva.getVehiculo().getEstado().toString());
         }
-        if (reserva.getCliente() != null) {
-            for (Ocupacion ocupacionActiva : repoOcupaciones.listar()) {
-                if (ocupacionActiva.estaActiva() && ocupacionActiva.getCliente() != null
-                        && reserva.getCliente().getId().equals(ocupacionActiva.getCliente().getId())) {
-                    throw new ReservaInvalidaException("El cliente ya tiene una ocupación activa.");
-                }
+        for (Ocupacion ocupacionActiva : repoOcupaciones.listar()) {
+            if (ocupacionActiva == null || !ocupacionActiva.estaActiva()) {
+                continue;
+            }
+            if (ocupacionActiva.getCliente() != null
+                    && reserva.getCliente().getId().equals(ocupacionActiva.getCliente().getId())) {
+                throw new ReservaInvalidaException("El cliente ya tiene una ocupación activa.");
+            }
+            if (ocupacionActiva.getVehiculo() != null
+                    && reserva.getVehiculo().getPatente() != null
+                    && reserva.getVehiculo().getPatente().equals(ocupacionActiva.getVehiculo().getPatente())) {
+                throw new VehiculoNoDisponibleException(reserva.getVehiculo().getPatente(), "OCUPADO");
             }
         }
 
@@ -94,6 +109,9 @@ public class ServicioAlquilerImpl implements ServicioAlquiler {
         }
         if (empleado == null) {
             throw new Exception("La devolución debe ser realizada por un empleado registrado.");
+        }
+        if (ocupacion.getVehiculo() == null) {
+            throw new Exception("La ocupación no tiene un vehículo asociado.");
         }
         Devolucion devolucion = new Devolucion(UUID.randomUUID().toString(), ocupacion, empleado, LocalDateTime.now(),
                 kilometrajeEntrada, danios, cargosExtra);

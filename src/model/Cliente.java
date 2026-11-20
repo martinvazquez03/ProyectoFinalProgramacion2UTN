@@ -5,12 +5,14 @@ import java.util.ArrayList;
 
 public class Cliente extends Persona {
     private LocalDate fechaRegistro;
+    private boolean activo;
     private ArrayList<Ocupacion> historialOcupaciones;
 
     public Cliente(String id, String nombre, String apellido, String dni, String telefono, String email,
                    LocalDate fechaRegistro) {
         super(id, nombre, apellido, dni, telefono, email);
         this.fechaRegistro = fechaRegistro;
+        this.activo = true;
         this.historialOcupaciones = new ArrayList<Ocupacion>();
     }
 
@@ -47,4 +49,6 @@ public class Cliente extends Persona {
 
     public LocalDate getFechaRegistro() { return fechaRegistro; }
     public void setFechaRegistro(LocalDate fechaRegistro) { this.fechaRegistro = fechaRegistro; }
+    public boolean isActivo() { return activo; }
+    public void setActivo(boolean activo) { this.activo = activo; }
 }
