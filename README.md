@@ -2,6 +2,7 @@
 
 > **Integrante:** Martin Vazquez Perez  
 > **Tecnologías:** Java, JDBC, SQLite, Git/GitHub
+> **Link GitHub:** https://github.com/martinvazquez03/ProyectoFinalProgramacion2UTN
 
 ## 1. Objetivo
 
