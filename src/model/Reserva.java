@@ -1,11 +1,10 @@
 package model;
 
 import enums.EstadoReserva;
-import interfaces.Auditable;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
-public class Reserva implements Auditable {
+public class Reserva {
     private String idReserva;
     private Cliente cliente;
     private Vehiculo vehiculo;
@@ -46,16 +45,7 @@ public class Reserva implements Auditable {
         return vehiculo.calcularCosto((int) dias);
     }
 
-    @Override
-    public LocalDateTime getFechaCreacion() { return fechaReserva; }
-
-    @Override
     public String getCreadoPor() { return creadoPor; }
-
-    @Override
-    public void marcarModificacion(String usuario) {
-        // Registro simple para auditoría
-    }
 
     public String getIdReserva() { return idReserva; }
     public void setIdReserva(String idReserva) { this.idReserva = idReserva; }

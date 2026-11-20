@@ -5,7 +5,7 @@ DIAGRAMA UML - SISTEMA DE ALQUILER DE VEHICULOS
 -----------
 [model]        -> Persona, Cliente, Empleado, Usuario, Vehiculo, Automovil, Reserva, Ocupacion, Entrega, Devolucion
 [enums]        -> RolUsuario, EstadoVehiculo, EstadoReserva, EstadoOcupacion
-[interfaces]   -> Alquilable, Auditable
+[interfaces]   -> Alquilable
 [exception]    -> VehiculoNoDisponibleException, ReservaInvalidaException, UsuarioNoAutorizadoException, DatoInvalidoException, BaseDatosException
 [dao]          -> GestorBaseDatos
 [config]       -> ConnectionFactory
@@ -26,13 +26,11 @@ Persona  -> Atributos: id, nombre, apellido, dni, telefono, email
            Metodos: getNombreCompleto(), getIdentificacion() [abstracto]
 
 Vehiculo -> Atributos: patente, marca, modelo, anio, kilometraje, estado, precioDia, tarifaSeguro, activo
-           Metodos: calcularCosto(int) [abstracto], estaDisponible(), requiereSeguro()
+           Metodos: calcularCosto(int) [abstracto], estaDisponible()
 
 3. IMPLEMENTACION DE INTERFACES
 -------------------------------
 Vehiculo             -->|implements|--> Alquilable
-Reserva              -->|implements|--> Auditable
-Ocupacion            -->|implements|--> Auditable
 ServicioAlquilerImpl -->|implements|--> ServicioAlquiler
 
 4. ENUMERACIONES
@@ -74,8 +72,7 @@ OCUPACION (-idOcupacion:String, -cliente:Cliente, -vehiculo:Vehiculo, -reserva:R
            -fechaInicioReserva:LocalDate, -estado:EstadoOcupacion,
            -creadoPor:String (username del empleado que entrega))
           +estaActiva(): boolean | +calcularDias(): long | +cerrar(Devolucion): void
-          +getFechaCreacion(): LocalDateTime (derivada de fechaInicio)
-          +getFechaReserva(): LocalDateTime | +getFechaInicioReserva(): LocalDate
+                    +getFechaReserva(): LocalDateTime | +getFechaInicioReserva(): LocalDate
           +getFechaFinReserva(): LocalDate | +getFechaFinReal(): LocalDateTime (derivada de la devolucion)
 
 ENTREGA   (-idEntrega:String, -ocupacion:Ocupacion, -empleado:Empleado, -fechaHoraEntrega:LocalDateTime,
@@ -153,7 +150,6 @@ Automovil extends Vehiculo
 Cliente extends Persona
 Empleado extends Persona
 Vehiculo implements Alquilable
-Reserva/Ocupacion implement Auditable
 
 11. PERSISTENCIA - BASE DE DATOS
 -------------------------------

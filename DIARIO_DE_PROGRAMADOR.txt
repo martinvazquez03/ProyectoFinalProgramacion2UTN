@@ -226,3 +226,8 @@ Verificado con DniTest 7/7, DatoInvalidoTest 3/3 y el resto de suites funcionale
 [20/11/2026] - Eliminacion de desactivar reserva
 Quite la opcion Desactivar reserva del submenu Reservas y el metodo SistemaAlquiler.desactivarReserva. Elimine el flag activo de Reserva, su columna en la BD, el mapeo y las actualizaciones asociadas. Al desactivar un cliente o vehiculo, sus reservas ahora se cancelan usando el estado CANCELADA, reutilizando el flujo existente de cancelacion. La migracion convierte reservas legacy con activo=0 a CANCELADA y elimina la columna reserva.activo.
 Actualice README, DIAGRAMA_UML y DOCUMENTACION_SISTEMA. Verificado con ExhaustiveTest 118/118, SoftDeleteTest 59/59, Migration 47/47, Invariant 36/36 nueva, legacy y copia de la BD actual, Role 25/25, Envolvente 13/13, Repositorio 20/20, Charge 14/14, Observaciones 10/10, PendingDelivery 15/15, Menu 17/17, DniTest 7/7, DatoInvalidoTest 3/3, DoorTest 5/5 y ClienteUser 15/15.
+[20/11/2026] - Eliminacion de requiereSeguro
+Elimine el metodo requiereSeguro() de la interfaz Alquilable y su implementacion en Vehiculo porque no se invocaba en ninguna parte del sistema. Actualice README, DIAGRAMA_UML y DOCUMENTACION_SISTEMA.
+[20/11/2026] - Eliminacion de Auditable no implementado
+Elimine la interfaz Auditable porque solo getCreadoPor() tenia uso real; getFechaCreacion() no se invocaba y marcarModificacion() estaba vacio en Reserva y Ocupacion. Mantengo getCreadoPor() como metodo concreto porque lo usa GestorBaseDatos para persistir creado_por.
+Actualice README, DIAGRAMA_UML y DOCUMENTACION_SISTEMA. Verificado con compilacion completa e Invariant 36/36 en BD nueva y legacy.

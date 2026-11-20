@@ -33,11 +33,6 @@ public abstract class Vehiculo implements Alquilable {
 
     public abstract double calcularCosto(int dias);
 
-    @Override
-    public boolean requiereSeguro() {
-        return true;
-    }
-
     public String getPatente() { return patente; }
     public void setPatente(String patente) { this.patente = patente; }
     public String getMarca() { return marca; }

@@ -1,12 +1,11 @@
 package model;
 
 import enums.EstadoOcupacion;
-import interfaces.Auditable;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 
-public class Ocupacion implements Auditable {
+public class Ocupacion {
     private String idOcupacion;
     private Cliente cliente;
     private Vehiculo vehiculo;
@@ -63,14 +62,7 @@ public class Ocupacion implements Auditable {
         this.estado = EstadoOcupacion.FINALIZADA;
     }
 
-    @Override
-    public LocalDateTime getFechaCreacion() { return fechaInicio; }
-
-    @Override
     public String getCreadoPor() { return creadoPor; }
-
-    @Override
-    public void marcarModificacion(String usuario) { }
 
     public String getIdOcupacion() { return idOcupacion; }
     public Cliente getCliente() { return cliente; }

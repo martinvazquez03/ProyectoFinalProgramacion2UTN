@@ -23,7 +23,7 @@ Desarrollar un sistema para la administración de una empresa de alquiler de veh
 | Diagrama UML | Obligatorio | `DIAGRAMA_UML.txt` (actualizado) |
 | Los 4 pilares POO (Herencia, Polimorfismo, Abstracción, Encapsulamiento) | Obligatorio | Ver secciones 4, 5, 6 |
 | Mínimo 8 clases (sin contar Main, interfaces ni excepciones) | Obligatorio | Cumplido (Persona, Vehiculo, Cliente, Empleado, Usuario, Reserva, Ocupacion, Entrega, Devolucion, etc.) |
-| Mínimo 1 Clase Abstracta, 1 Interfaz, 1 Enumeración | Obligatorio | `Persona`, `Vehiculo` (abstractas) / `Alquilable`, `Auditable` (interfaces) / 4 enumeraciones |
+| Mínimo 1 Clase Abstracta, 1 Interfaz, 1 Enumeración | Obligatorio | `Persona`, `Vehiculo` (abstractas) / `Alquilable` (interfaz) / 4 enumeraciones |
 | Al menos 2 Colecciones distintas | Obligatorio | `ArrayList<T>`, `LinkedHashMap<K,V>` (preserva orden de carga) |
 | Al menos 2 Excepciones personalizadas | Obligatorio | `VehiculoNoDisponibleException`, `ReservaInvalidaException`, `UsuarioNoAutorizadoException`, `DatoInvalidoException`, `BaseDatosException` |
 | Al menos 1 Clase Genérica y 1 Interfaz/Método genérico | Obligatorio | `RepositorioGenerico<T,ID>` con método genérico `<R> mapear(Function<T,R>)` |
@@ -91,14 +91,12 @@ public abstract class Vehiculo implements Alquilable { // ver interfaz
 
 | Interfaz | Método(s) | Implementado por | Descripción |
 | --- | --- | --- | --- |
-| `Alquilable` | `double calcularCosto(int dias)`, `boolean requiereSeguro()` | `Vehiculo` (abstracta) e implícitamente por sus subclases | Contrato para objetos que pueden ser alquilados. Permite abstraer la lógica de tarifación. |
-| `Auditable` | `LocalDateTime getFechaCreacion()`, `String getCreadoPor()`, `void marcarModificacion(String usuario)` | `Reserva`, `Ocupacion` | Estandariza auditoria de entidades. |
+| `Alquilable` | `double calcularCosto(int dias)` | `Vehiculo` (abstracta) e implícitamente por sus subclases | Contrato para objetos que pueden ser alquilados. Permite abstraer la lógica de tarifación. |
 
 Ejemplo:
 ```java
 public interface Alquilable {
     double calcularCosto(int dias);
-    boolean requiereSeguro();
 }
 ```
 
@@ -180,7 +178,7 @@ src/
 ├── dao/           # GestorBaseDatos
 ├── model/         # Entidades
 ├── enums/         # Enumeraciones
-├── interfaces/    # Interfaces (Alquilable, Auditable)
+├── interfaces/    # Interfaz Alquilable
 ├── exception/     # Excepciones personalizadas
 ├── service/       # SistemaAlquiler, ServicioAlquiler
 ├── service/impl/  # ServicioAlquilerImpl

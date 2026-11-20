@@ -282,7 +282,7 @@ Usuario
 Vehiculo (abstracta) implements Alquilable
     Atributos: patente, marca, modelo, anio, kilometraje, estado (EstadoVehiculo),
     precioDia, tarifaSeguro, activo.
-    Metodos: estaDisponible(), calcularCosto(int) abstracto, requiereSeguro().
+    Metodos: estaDisponible(), calcularCosto(int) abstracto.
     No existe el estado RESERVADO; las reservas se controlan por fechas.
 
 Automovil extends Vehiculo
@@ -291,13 +291,13 @@ Automovil extends Vehiculo
     calcularCosto(dias) = precioDia*dias + tarifaSeguro*dias + 10% del costo base si la
     transmision es AUTOMATICA.
 
-Reserva implements Auditable
+Reserva
     Atributos: idReserva, cliente, vehiculo, fechaInicio, fechaFin, fechaReserva,
     estado (EstadoReserva), creadoPor.
     Metodos: validar(), confirmar(), cancelar(), calcularMontoTotal(),
-    getMontoSenia() derivado de Vehiculo.tarifaSeguro, getFechaCreacion() = fechaReserva.
+    getMontoSenia() derivado de Vehiculo.tarifaSeguro.
 
-Ocupacion implements Auditable
+Ocupacion
     Atributos: idOcupacion, cliente, vehiculo, reserva, entrega, devolucion,
     fechaInicio, fechaFinEstimada, fechaReserva, fechaInicioReserva,
     estado (EstadoOcupacion), creadoPor.
@@ -330,16 +330,11 @@ Enumeraciones:
 --------------
 Alquilable
     Contrato para objetos alquilables.
-    Metodos: calcularCosto(int dias), requiereSeguro().
+    Metodos: calcularCosto(int dias).
     Implementacion: Vehiculo (y por herencia Automovil).
     Uso: permite tratar la flota como Alquilable/Vehiculo y calcular costos de forma
     polimorfica, sin depender de la clase concreta.
 
-Auditable
-    Contrato para entidades que registran autoria y fecha de creacion.
-    Metodos: getFechaCreacion(), getCreadoPor(), marcarModificacion(String usuario).
-    Implementacion: Reserva y Ocupacion.
-    Uso: estandariza la auditoria de reservas y ocupaciones; creadoPor guarda el username.
 
 ServicioAlquiler
     Contrato de la capa de servicio de entregas y devoluciones.
@@ -630,7 +625,7 @@ src/model/
     Devolucion.
 
 src/interfaces/
-    Alquilable, Auditable.
+    Alquilable.
 
 src/enums/
     EstadoVehiculo, EstadoReserva, EstadoOcupacion, RolUsuario.
