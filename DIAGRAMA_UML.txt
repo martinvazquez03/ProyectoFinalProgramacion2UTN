@@ -99,8 +99,6 @@ ConnectionFactory: +getConnection(): Connection | +cerrar(AutoCloseable): void
   +realizarEntrega(Reserva, Empleado, String): Ocupacion
   +realizarDevolucion(Ocupacion, Empleado, int, String, double): Devolucion
   (el cargo extra se calcula desde Vehiculo.tarifaSeguro; no se pide por teclado)
-  +listarAlquiladosActualmente(): List<Ocupacion>
-  +listarOcupaciones(): List<Ocupacion>
   +cargarOcupaciones(List<Ocupacion>): void
 
 ServicioAlquilerImpl ..|> ServicioAlquiler

@@ -167,7 +167,7 @@ public class RepositorioGenerico<T, ID> {
 }
 ```
 
-Uso: `RepositorioGenerico<Cliente, String>`, `RepositorioGenerico<Vehiculo, String>`, `RepositorioGenerico<Reserva, String>`, `RepositorioGenerico<Empleado, String>`, `RepositorioGenerico<Ocupacion, String>` y `RepositorioGenerico<Usuario, String>`. `listar()` conserva el orden de carga/alta y `mapear()` transforma la colección.
+Uso: `RepositorioGenerico<Cliente, String>`, `RepositorioGenerico<Vehiculo, String>`, `RepositorioGenerico<Reserva, String>`, `RepositorioGenerico<Empleado, String>`, `RepositorioGenerico<Ocupacion, String>` y `RepositorioGenerico<Usuario, String>`. `listar()` conserva el orden de carga/alta y `mapear()` transforma la colección. En `administrarUsuarios()` se usa para convertir cada `Usuario` en una línea de texto.
 
 ## 12. Persistencia con JDBC
 
@@ -208,7 +208,7 @@ El mapeo de vehiculos segun `tipo`/`datos_especificos` tambien vive en `GestorBa
 | Componente | Funcionalidades | Reglas |
 | --- | --- | --- |
 | `SistemaAlquiler` | login/logout, crearUsuario, crearCliente, agregarAutomovil, esCliente, crearReserva, reservarComoCliente, crearReservaCliente, realizarEntregaPorIndice, realizarDevolucionPorIndice, listados, historial y desactivaciones | Mantiene repositorios genéricos para clientes, vehículos, reservas, empleados, ocupaciones y usuarios. Lee de ellos y, antes de persistir, actualiza el repositorio correspondiente. Valida rol, datos de Persona, patente unica, solapamientos, fechas, estados y ocupaciones activas antes de desactivar. El listado de entrega incluye unicamente reservas PENDIENTES y no pide observaciones. Al entregar, elimina la reserva asociada del repositorio y de la BD. En la devolución, los cargos extra se toman de `Vehiculo.tarifaSeguro` y las observaciones se cargan por teclado. |
-| `ServicioAlquiler` / `ServicioAlquilerImpl` | realizarEntrega(reserva, empleado, observaciones), realizarDevolucion(ocupacion, empleado, km, danios, cargos), listarAlquiladosActualmente, listarOcupaciones, cargarOcupaciones | Comparte el repositorio de ocupaciones y el de usuarios con `SistemaAlquiler`. Genera Ocupacion/Entrega/Devolucion, actualiza estado y km del vehiculo, aplica multas y registra la ocupación en el repositorio antes de que `SistemaAlquiler` persista. Los cargos extra recibidos se calculan desde la tarifa de seguro del vehículo. |
+| `ServicioAlquiler` / `ServicioAlquilerImpl` | realizarEntrega(reserva, empleado, observaciones), realizarDevolucion(ocupacion, empleado, km, danios, cargos), cargarOcupaciones | Comparte el repositorio de ocupaciones y el de usuarios con `SistemaAlquiler`. Genera Ocupacion/Entrega/Devolucion, actualiza estado y km del vehiculo, aplica multas y registra la ocupación en el repositorio antes de que `SistemaAlquiler` persista. Los cargos extra recibidos se calculan desde la tarifa de seguro del vehículo. |
 
 ## 14. Flujo Funcional Principal
 
@@ -250,15 +250,6 @@ public class ServicioAlquiler {
     // ...
 ```
 
-## 16. Git y Trabajo Colaborativo (Obligatorio)
-
-- **Repositorio:** `https://github.com/<usuario>/<nombre-repo>` (privado/público según consigna)
-- **Ramas:** `main`, `develop`, ramas por feature (`feature/servicio-alquiler`, `feature/dao-jdbc`).
-- **Commits:** atómicos, descriptivos (Convencional Commits: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`).
-- **Participación:** todos los integrantes deben commitear. Se revisará historial (`git log --oneline --graph`).
-- **Protecciones:** PRs con revisión, evitar un solo commit masivo.
-- **Archivo .gitignore:** incluir `*.class`, `out/`, `.idea/`, `*.db`, `*.properties` con credenciales, `bin/`.
-
 ## 17. Checklist para Entrega/Defensa
 
 - [ ] Diagrama UML entregado
@@ -274,15 +265,6 @@ public class ServicioAlquiler {
 - [ ] Roles ADMIN/EMPLEADO/CLIENTE (los tres inician sesion; CLIENTE solo ve disponibles y crea sus reservas)
 - [ ] README.md (este documento) + instrucciones de ejecución
 - [ ] Esquema SQL embebido en `GestorBaseDatos.crearTablas()` (sin script externo)
-
-## 18. Sugerencias para Sacar Buena Nota
-
-- **Diseño:** mostrar claramente polimorfismo (lista `ArrayList<Vehiculo>` y llamada a `calcularCosto()`).
-- **Validaciones:** demostrar detección de solapamiento de reservas.
-- **Transacciones:** usar `commit/rollback` en entrega/devolución.
-- **Seguridad:** hashes de contraseñas, validación por roles.
-- **Defensa:** cada integrante debe explicar su capa (modelo/persistencia/servicio/UI) sin leer todo el código.
-- **Calidad:** código limpio, sin duplicación, principios básicos SOLID.
 
 ## 19. Estructura de Tablas SQL (Implementada)
 

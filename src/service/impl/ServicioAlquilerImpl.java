@@ -9,7 +9,6 @@ import service.ServicioAlquiler;
 import util.RepositorioGenerico;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -125,22 +124,6 @@ public class ServicioAlquilerImpl implements ServicioAlquiler {
             ocupacion.getVehiculo().setEstado(EstadoVehiculo.EN_LIMPIEZA);
         }
         return devolucion;
-    }
-
-    @Override
-    public List<Ocupacion> listarAlquiladosActualmente() {
-        List<Ocupacion> activas = new ArrayList<Ocupacion>();
-        for (Ocupacion o : repoOcupaciones.listar()) {
-            if (o.estaActiva()) {
-                activas.add(o);
-            }
-        }
-        return activas;
-    }
-
-    @Override
-    public List<Ocupacion> listarOcupaciones() {
-        return new ArrayList<Ocupacion>(repoOcupaciones.listar());
     }
 
     @Override

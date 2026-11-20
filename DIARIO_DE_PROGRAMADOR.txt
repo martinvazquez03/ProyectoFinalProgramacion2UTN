@@ -231,3 +231,10 @@ Elimine el metodo requiereSeguro() de la interfaz Alquilable y su implementacion
 [20/11/2026] - Eliminacion de Auditable no implementado
 Elimine la interfaz Auditable porque solo getCreadoPor() tenia uso real; getFechaCreacion() no se invocaba y marcarModificacion() estaba vacio en Reserva y Ocupacion. Mantengo getCreadoPor() como metodo concreto porque lo usa GestorBaseDatos para persistir creado_por.
 Actualice README, DIAGRAMA_UML y DOCUMENTACION_SISTEMA. Verificado con compilacion completa e Invariant 36/36 en BD nueva y legacy.
+[20/11/2026] - Uso de mapear en administrarUsuarios
+Reemplace el recorrido manual de repoUsuarios.listar() por repoUsuarios.mapear(...) en administrarUsuarios. La funcion generica transforma cada Usuario en una linea de texto y el metodo solo concatena el resultado. Verificado con MigrationTest 47/47 y compilacion completa.
+[20/11/2026] - Uso de Usuario.toString en administrarUsuarios
+administrarUsuarios ahora llama a repoUsuarios.mapear(Usuario::toString), reutilizando el toString de Usuario en lugar de reconstruir la linea de texto en SistemaAlquiler. Verificado con MigrationTest 47/47.
+[20/11/2026] - Limpieza de ServicioAlquiler
+Elimine de la interfaz ServicioAlquiler y de ServicioAlquilerImpl los metodos listarAlquiladosActualmente() y listarOcupaciones(), que no se usaban en ninguna parte. Se mantiene cargarOcupaciones() y los metodos de entrega/devolucion.
+Actualice README, DIAGRAMA_UML y DOCUMENTACION_SISTEMA. Verificado con compilacion completa y suites funcionales.

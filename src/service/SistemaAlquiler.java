@@ -985,10 +985,9 @@ public class SistemaAlquiler {
         StringBuilder sb = new StringBuilder();
         sb.append("\n--- ADMINISTRAR USUARIOS ---\n");
         try {
-            List<Usuario> listaUsuarios = repoUsuarios.listar();
-            for (Usuario u : listaUsuarios) {
-                sb.append("Usuario: ").append(u.getUsername()).append(" | Rol: ").append(u.getRol())
-                        .append(" | Activo: ").append(u.isActivo()).append("\n");
+            List<String> lineas = repoUsuarios.mapear(Usuario::toString);
+            if (!lineas.isEmpty()) {
+                sb.append(String.join("\n", lineas)).append("\n");
             }
         } catch (Exception e) {
             sb.append("Error al consultar usuarios: ").append(e.getMessage()).append("\n");

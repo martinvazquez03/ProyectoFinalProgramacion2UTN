@@ -341,9 +341,7 @@ ServicioAlquiler
     Metodos:
         realizarEntrega(Reserva, Empleado, String): Ocupacion.
         realizarDevolucion(Ocupacion, Empleado, int, String, double): Devolucion.
-        listarAlquiladosActualmente(): List<Ocupacion>.
-        listarOcupaciones(): List<Ocupacion>.
-        cargarOcupaciones(List<Ocupacion>).
+                cargarOcupaciones(List<Ocupacion>).
     Implementacion: ServicioAlquilerImpl.
     Excepciones declaradas: VehiculoNoDisponibleException y ReservaInvalidaException en
     realizarEntrega; realizarDevolucion declara Exception.
@@ -386,7 +384,7 @@ Ventajas:
     - Centraliza el estado en memoria.
     - Permite reutilizar la misma clase para seis tipos de entidades.
     - Mantiene el orden y facilita listados estables.
-    - mapear() permite transformar la coleccion sin repetir codigo.
+    - mapear() permite transformar la coleccion sin repetir codigo. Se usa en administrarUsuarios() para convertir cada Usuario en una linea de texto.
 
 Flujo de persistencia:
     1. Se carga la BD a los repositorios al iniciar.
