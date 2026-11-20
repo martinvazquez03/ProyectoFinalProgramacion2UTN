@@ -1,0 +1,656 @@
+DOCUMENTACION DEL SISTEMA DE ALQUILER DE VEHICULOS
+==================================================
+
+1. DESCRIPCION GENERAL
+---------------------
+El sistema administra clientes, automoviles, reservas, entregas, devoluciones y usuarios
+de una empresa de alquiler. La entrada es una aplicacion de consola: Main contiene el bucle y el switch, y MenuConsola maneja la interaccion. Toda la logica
+de negocio esta en SistemaAlquiler y ServicioAlquilerImpl; la persistencia esta en
+GestorBaseDatos y ConnectionFactory; los datos en memoria se guardan en repositorios
+genericos.
+
+Flujo general:
+
+Main (bucle y switch) -> MenuConsola (menu y lectura por teclado)
+    -> SistemaAlquiler (reglas de negocio y control de roles)
+        -> ServicioAlquilerImpl (entrega, devolucion y ocupaciones)
+        -> RepositorioGenerico (datos en memoria)
+        -> GestorBaseDatos (SQLite mediante JDBC)
+
+Regla de datos:
+- Al iniciar, los datos de SQLite se cargan en repositorios genericos.
+- Las consultas y validaciones leen desde los repositorios.
+- Las altas, modificaciones y desactivaciones actualizan primero el repositorio y luego la BD.
+- Las pruebas se realizan sobre copias de la BD; la BD real no se modifica durante las pruebas.
+
+Usuario administrador por defecto: mariano / 1234 (rol ADMINISTRADOR).
+
+
+2. MENU Y FUNCIONAMIENTO POR ROL
+--------------------------------
+El menu cambia segun la sesion y el rol. Los numeros de las categorias se generan de forma
+dinamica para mostrar solo las opciones permitidas.
+
+Sin sesion iniciada:
+    1. Iniciar sesion
+    2. Crear usuario (solo CLIENTE)
+    0. Salir
+
+Con sesion iniciada:
+    1. Cerrar sesion
+    Las categorias disponibles se numeran desde 2.
+    0. Salir
+
+Categorias:
+    - Clientes
+    - Automoviles
+    - Reservas
+    - Entregas
+    - Devoluciones
+    - Usuarios
+
+Visibilidad por rol:
+    ADMINISTRADOR: Clientes, Automoviles, Reservas, Entregas, Devoluciones y Usuarios.
+    EMPLEADO: Clientes, Automoviles, Reservas, Entregas, Devoluciones y Usuarios (solo crear).
+    CLIENTE: Automoviles (solo disponibles) y Reservas (crear/cancelar las propias).
+
+La opcion 0 vuelve al menu anterior dentro de un submenu y sale del sistema en el menu principal.
+
+
+3. FUNCIONES DEL MENU
+---------------------
+3.1 INICIAR SESION
+    Entrada: usuario y contrasena.
+    Funcionamiento: SistemaAlquiler.login busca el usuario en repoUsuarios; valida que este
+    activo y que la contrasena coincida. Si es CLIENTE, adjunta la ficha desde repoClientes;
+    si es ADMINISTRADOR o EMPLEADO, adjunta el Empleado desde repoEmpleados. Deja el usuario
+    en usuarioLogueado.
+    Errores posibles: usuario inexistente, usuario inactivo, credenciales incorrectas o
+    usuario CLIENTE sin ficha de cliente asociada.
+
+3.2 CREAR USUARIO
+    Sin sesion: solo permite crear un usuario CLIENTE. Crea en conjunto un Cliente y un
+    Usuario con el mismo id.
+    Con sesion:
+        ADMINISTRADOR: puede crear ADMINISTRADOR, EMPLEADO o CLIENTE.
+        EMPLEADO: solo puede crear EMPLEADO o CLIENTE.
+        CLIENTE: no tiene acceso a esta opcion.
+    Funcionamiento interno: valida datos personales y email; verifica que el username no exista;
+    para CLIENTE verifica que el DNI tenga 7 u 8 caracteres y que no exista; crea el Usuario y la ficha Cliente o Empleado;
+    guarda primero en repoClientes/repoEmpleados/repoUsuarios y luego en la BD.
+    Para ADMINISTRADOR o EMPLEADO solicita tambien legajo y sucursal.
+
+3.3 CERRAR SESION
+    Deja usuarioLogueado en null y vuelve al menu de invitado.
+
+
+4. CATEGORIA CLIENTES
+---------------------
+Disponible para ADMINISTRADOR y EMPLEADO.
+
+1. Listar clientes
+    Muestra el indice y los datos de cada cliente: nombre completo, DNI, telefono y email.
+    Internamente usa repoClientes.listar(). Requiere sesion ADMINISTRADOR o EMPLEADO; un
+    invitado recibe un mensaje de sesion requerida y un CLIENTE recibe UsuarioNoAutorizadoException.
+
+2. Crear cliente
+    Pide nombre, apellido, DNI, telefono y email. Valida los datos personales y el formato del
+    email. Verifica que el DNI tenga entre 7 y 8 caracteres y que no exista otro cliente con el mismo DNI (sin distinguir mayusculas).
+    Genera un username con nombre_apellido en minusculas, reemplazando espacios internos por
+    guion bajo, y usa el DNI como contrasena. Verifica que el username no exista.
+    Crea un Cliente y un Usuario CLIENTE con el mismo id. Guarda primero en repoClientes y
+    repoUsuarios y luego en las tablas cliente y usuario.
+
+3. Ver historial de clientes
+    Recorre los clientes de repoClientes. Para cada uno muestra:
+        - Reservas vigentes no representadas por una ocupacion.
+        - Datos de reserva guardados en la ocupacion: fecha de realizacion, inicio y fin.
+        - Datos de entrega: fecha, vehiculo y observaciones.
+        - Datos de devolucion: fecha, cargos extra y monto final.
+        - Observaciones cargadas al devolver el vehiculo.
+    El historial de ocupaciones se reconstruye desde repoOcupaciones al iniciar o recargar, y
+    Cliente.agregarOcupacion evita duplicados por id.
+
+4. Desactivar cliente (solo ADMIN)
+    Pide el indice del listado activo. Bloquea la operacion si el cliente tiene una ocupacion
+    activa. Si no tiene, marca el cliente como inactivo, cancela sus reservas activas y
+    desactiva el Usuario CLIENTE asociado. No borra filas: los datos quedan en la BD y dejan de
+    listarse.
+
+
+5. CATEGORIA AUTOMOVILES
+------------------------
+Para CLIENTE:
+    1. Ver automoviles disponibles
+        Lista solo los vehiculos de repoVehiculos con estado DISPONIBLE.
+
+Para ADMINISTRADOR y EMPLEADO:
+    1. Listar vehiculos
+        Abre un submenu:
+            1. Automoviles disponibles: estado DISPONIBLE.
+            2. Automoviles alquilados: ocupaciones activas de repoOcupaciones.
+            3. Automoviles no disponibles: cualquier estado distinto de DISPONIBLE, con motivo.
+
+    2. Ver flota completa
+        Lista todos los vehiculos del repositorio mostrando la clase concreta (Automovil),
+        patente, marca, modelo, estado, precio por dia y kilometraje. Usa el orden de carga/alta
+        del repositorio generico.
+
+    3. Agregar automovil
+        Pide patente, marca, modelo, anio, kilometraje, estado, precio por dia, tarifa de seguro,
+        cantidad de puertas y transmision.
+        Valida: patente y marca no vacias, marca sin numeros, modelo no vacio, anio entre 1900 y
+        el anio actual, kilometraje y tarifa de seguro no negativos, precio mayor a cero,
+        cantidad de puertas entre 1 y 5 y transmision MANUAL o AUTOMATICA. Cada valor invalido lanza DatoInvalidoException con un mensaje especifico; el metodo la captura y devuelve el mensaje. Rechaza estado nulo
+        o vacio. No permite estado ALQUILADO. Verifica que la patente no exista en repoVehiculos,
+        comparando sin distinguir mayusculas. La patente se normaliza con trim.
+        Crea un Automovil y lo guarda primero en repoVehiculos y luego en la tabla vehiculo.
+        En la BD se guarda tipo=AUTOMOVIL y datos_especificos con formato
+        cantidadPuertas|transmision|kilometraje.
+
+    4. Modificar estado de vehiculo
+        Lista todos los vehiculos y pide indice y nuevo estado.
+        No permite asignar ALQUILADO manualmente porque ese estado lo gestiona la entrega.
+        Rechaza estados invalidos y no permite modificar un vehiculo que tenga una ocupacion
+        activa. Modifica el objeto que ya esta en repoVehiculos y luego actualiza la BD.
+
+    5. Desactivar automovil (solo ADMIN)
+        Pide el indice del listado activo. Bloquea la operacion si tiene una ocupacion activa.
+        Marca el vehiculo como inactivo y cancela sus reservas activas. No borra filas.
+
+
+6. CATEGORIA RESERVAS
+---------------------
+Para CLIENTE:
+    1. Crear reserva
+        Muestra los automoviles disponibles y la ficha del cliente logueado. Pide indice de
+        vehiculo, fecha de inicio y fecha de fin. Llama a reservarComoCliente, que usa
+        automaticamente la ficha del usuario y el username como creadoPor.
+
+    2. Cancelar reserva
+        Muestra solo las reservas cancelables propias. Pide el indice y cambia el estado a
+        CANCELADA en el repositorio y en la BD.
+
+Para ADMINISTRADOR y EMPLEADO:
+    1. Listar reservas
+        Muestra todas las reservas del repositorio, incluyendo todos sus estados.
+        Requiere sesion ADMINISTRADOR o EMPLEADO; un invitado recibe mensaje de sesion requerida
+        y un CLIENTE recibe UsuarioNoAutorizadoException.
+
+    2. Crear reserva
+        Permite crear un cliente nuevo en el momento si se responde S.
+        Muestra los clientes sin reserva activa y los automoviles disponibles.
+        Pide indice de cliente, indice de vehiculo y fechas.
+        Valida que el cliente no tenga otro solapamiento, que el vehiculo no tenga otra reserva
+        solapada y que el cliente no tenga una ocupacion activa. La reserva nace PENDIENTE.
+        Guarda primero en repoReservas y luego en la tabla reserva.
+
+    3. Cancelar reserva
+        Muestra las reservas cancelables permitidas. No se pueden cancelar reservas CONCRETADAS,
+        CANCELADAS o con ocupacion activa. Un CLIENTE solo cancela las propias; ADMIN/EMPLEADO
+        pueden cancelar cualquiera. Actualiza el estado en repositorio y BD.
+
+    
+Estados de una reserva:
+    PENDIENTE: recien creada; es la unica que se lista para entregar.
+    CONFIRMADA: estado intermedio; actualmente se usa solo al iniciar la entrega.
+    CANCELADA: reserva anulada; no se entrega.
+    CONCRETADA: se asigna durante la entrega antes de eliminar la reserva.
+
+
+7. CATEGORIA ENTREGAS
+---------------------
+Disponible para ADMINISTRADOR y EMPLEADO.
+
+1. Realizar entrega
+    Muestra unicamente las reservas PENDIENTES, con su indice.
+    Pide el indice de la reserva y usa el Empleado del usuario logueado; no acepta datos
+    ficticios de empleado.
+    Funcionamiento interno:
+        - Valida que la reserva tenga cliente y vehiculo y que el vehiculo no tenga otra
+          ocupacion activa, ademas de rechazar estados ALQUILADO/EN_REPARACION/EN_LIMPIEZA/
+          FUERA_SERVICIO.
+        - La reserva pasa a CONFIRMADA.
+        - ServicioAlquilerImpl.realizarEntrega crea la Ocupacion y la Entrega.
+        - La fecha de inicio de la ocupacion y de la entrega se toma de Reserva.fechaInicio.
+        - La ocupacion guarda una instantanea de las fechas de la reserva para el historial.
+        - El vehiculo pasa a ALQUILADO y se actualiza en repositorio y BD.
+        - La reserva pasa a CONCRETADA y luego se elimina de repoReservas y de la tabla reserva.
+    La entrega no pide observaciones; las observaciones se cargan en la devolucion.
+
+8. CATEGORIA DEVOLUCIONES
+-------------------------
+Disponible para ADMINISTRADOR y EMPLEADO.
+
+1. Realizar devolucion
+    Muestra las ocupaciones activas. Pide indice de ocupacion, kilometros recorridos, danios y
+    observaciones.
+    Funcionamiento interno:
+        - Valida que la ocupacion este activa, que tenga vehiculo y que el empleado exista.
+        - Calcula el kilometraje de entrada sumando los kilometros recorridos.
+        - El cargo extra se toma automaticamente de Vehiculo.tarifaSeguro; no se pide por teclado.
+        - ServicioAlquilerImpl crea la Devolucion, aplica la multa por danios si corresponde
+          (Devolucion.MULTA_POR_DANIOS = 5000) y calcula el monto final.
+        - La ocupacion se cierra y pasa a FINALIZADA.
+        - El vehiculo actualiza kilometraje y estado: EN_REPARACION si hay danios, EN_LIMPIEZA si no.
+        - La devolucion y la ocupacion se actualizan primero en repositorios y luego en la BD.
+    La observacion se guarda en Devolucion.observaciones y se muestra en el historial del cliente.
+
+9. CATEGORIA USUARIOS
+-------------------------------
+Para ADMINISTRADOR:
+    1. Ver usuarios
+        Lista username, rol y estado activo desde repoUsuarios.
+        Solo ADMINISTRADOR: un invitado recibe mensaje de sesion requerida y un CLIENTE o
+        EMPLEADO recibe UsuarioNoAutorizadoException.
+
+    2. Crear usuario
+        Permite crear ADMINISTRADOR, EMPLEADO o CLIENTE con las mismas validaciones descritas
+        en el punto 3.2.
+
+    3. Desactivar usuario (solo ADMIN)
+        Pide el indice del listado. No permite desactivar a mariano, al usuario actualmente
+        logueado ni a un usuario inexistente. Marca el Usuario como inactivo y conserva el
+        Empleado asociado y los datos historicos.
+
+Para EMPLEADO:
+    1. Crear usuario
+        Solo permite crear EMPLEADO o CLIENTE.
+
+
+10. CLASES Y ATRIBUTOS
+----------------------
+Persona (abstracta)
+    Atributos: id, nombre, apellido, dni, telefono, email.
+    Metodos: getIdentificacion() abstracto, getNombreCompleto(), getters y setters.
+
+Cliente extends Persona
+    Atributos: fechaRegistro, activo, historialOcupaciones (ArrayList<Ocupacion>).
+    Metodos: agregarOcupacion() con control de duplicados, limpiarHistorialOcupaciones(),
+    getHistorialOcupaciones().
+
+Empleado extends Persona
+    Atributos: legajo, sucursal.
+    Metodos: getIdentificacion() devuelve el legajo; getters y setters.
+
+Usuario
+    Atributos: idUsuario, username, passwordHash, rol (RolUsuario), activo,
+    empleado (Empleado), cliente (Cliente).
+    Un Usuario puede estar asociado a un Empleado o a un Cliente, no a ambos.
+    Incluye dos constructores para soportar ambos casos.
+
+Vehiculo (abstracta) implements Alquilable
+    Atributos: patente, marca, modelo, anio, kilometraje, estado (EstadoVehiculo),
+    precioDia, tarifaSeguro, activo.
+    Metodos: estaDisponible(), calcularCosto(int) abstracto, requiereSeguro().
+    No existe el estado RESERVADO; las reservas se controlan por fechas.
+
+Automovil extends Vehiculo
+    Atributos: cantidadPuertas, transmision.
+    Constantes: CANTIDAD_PUERTAS_POR_DEFECTO, TRANSMISION_MANUAL, TRANSMISION_AUTOMATICA.
+    calcularCosto(dias) = precioDia*dias + tarifaSeguro*dias + 10% del costo base si la
+    transmision es AUTOMATICA.
+
+Reserva implements Auditable
+    Atributos: idReserva, cliente, vehiculo, fechaInicio, fechaFin, fechaReserva,
+    estado (EstadoReserva), creadoPor.
+    Metodos: validar(), confirmar(), cancelar(), calcularMontoTotal(),
+    getMontoSenia() derivado de Vehiculo.tarifaSeguro, getFechaCreacion() = fechaReserva.
+
+Ocupacion implements Auditable
+    Atributos: idOcupacion, cliente, vehiculo, reserva, entrega, devolucion,
+    fechaInicio, fechaFinEstimada, fechaReserva, fechaInicioReserva,
+    estado (EstadoOcupacion), creadoPor.
+    Metodos: estaActiva(), calcularDias(), cerrar(Devolucion),
+    getFechaFinReal() derivado de la devolucion, getFechaFinReserva() derivado de
+    fechaFinEstimada o de la reserva.
+
+Entrega
+    Atributos: idEntrega, ocupacion, empleado, fechaHoraEntrega, kilometrajeSalida,
+    observaciones.
+    Metodos: generarComprobante(), validarDatos().
+    En el flujo actual las observaciones nuevas se cargan en la devolucion; el campo se
+    conserva por compatibilidad con datos anteriores.
+
+Devolucion
+    Atributos: idDevolucion, ocupacion, empleado, fechaHoraDevolucion, kilometrajeEntrada,
+    danios, observaciones, cargosExtra, montoFinal.
+    Constante: MULTA_POR_DANIOS = 5000.
+    Metodos: calcularCargos(), aplicarMultas(), tieneDanios(), cerrarOcupacion().
+    Mantiene un constructor compatible sin observaciones y otro con observaciones.
+
+Enumeraciones:
+    EstadoVehiculo: DISPONIBLE, ALQUILADO, EN_LIMPIEZA, EN_REPARACION, FUERA_SERVICIO.
+    EstadoReserva: PENDIENTE, CONFIRMADA, CANCELADA, CONCRETADA.
+    EstadoOcupacion: ACTIVA, FINALIZADA.
+    RolUsuario: ADMINISTRADOR, EMPLEADO, CLIENTE.
+
+
+11. INTERFACES
+--------------
+Alquilable
+    Contrato para objetos alquilables.
+    Metodos: calcularCosto(int dias), requiereSeguro().
+    Implementacion: Vehiculo (y por herencia Automovil).
+    Uso: permite tratar la flota como Alquilable/Vehiculo y calcular costos de forma
+    polimorfica, sin depender de la clase concreta.
+
+Auditable
+    Contrato para entidades que registran autoria y fecha de creacion.
+    Metodos: getFechaCreacion(), getCreadoPor(), marcarModificacion(String usuario).
+    Implementacion: Reserva y Ocupacion.
+    Uso: estandariza la auditoria de reservas y ocupaciones; creadoPor guarda el username.
+
+ServicioAlquiler
+    Contrato de la capa de servicio de entregas y devoluciones.
+    Metodos:
+        realizarEntrega(Reserva, Empleado, String): Ocupacion.
+        realizarDevolucion(Ocupacion, Empleado, int, String, double): Devolucion.
+        listarAlquiladosActualmente(): List<Ocupacion>.
+        listarOcupaciones(): List<Ocupacion>.
+        cargarOcupaciones(List<Ocupacion>).
+    Implementacion: ServicioAlquilerImpl.
+    Excepciones declaradas: VehiculoNoDisponibleException y ReservaInvalidaException en
+    realizarEntrega; realizarDevolucion declara Exception.
+
+
+12. GENERICOS
+-------------
+Clase generica RepositorioGenerico<T, ID>:
+    Atributo: cache de tipo Map<ID,T>, implementado con LinkedHashMap.
+    Metodos:
+        guardar(ID id, T entidad)
+        buscar(ID id): Optional<T>
+        listar(): List<T>
+        existe(ID id): boolean
+        eliminar(ID id): void
+        limpiar(): void
+        tamanio(): int
+        mapear(Function<T,R>): List<R>  (metodo generico adicional)
+
+Por que LinkedHashMap:
+    Permite buscar por clave en tiempo promedio O(1) y conserva el orden de insercion. Ese orden
+    se usa en listados de flota, vehiculos y reservas, y evita el comportamiento no determinista
+    de HashMap.
+
+Instancias en SistemaAlquiler:
+    repoClientes   -> RepositorioGenerico<Cliente,String>   clave: id del cliente.
+    repoVehiculos  -> RepositorioGenerico<Vehiculo,String>  clave: patente.
+    repoReservas   -> RepositorioGenerico<Reserva,String>   clave: idReserva.
+    repoEmpleados  -> RepositorioGenerico<Empleado,String>  clave: id del empleado.
+    repoOcupaciones-> RepositorioGenerico<Ocupacion,String> clave: idOcupacion.
+    repoUsuarios   -> RepositorioGenerico<Usuario,String>   clave: idUsuario.
+
+Uso compartido:
+    ServicioAlquilerImpl recibe repoOcupaciones y repoUsuarios desde SistemaAlquiler. Asi la
+    entrega registra la ocupacion en el repositorio compartido y puede resolver el username del
+    empleado sin consultar la BD.
+
+Ventajas:
+    - Evita repetir lecturas SQL en cada consulta.
+    - Centraliza el estado en memoria.
+    - Permite reutilizar la misma clase para seis tipos de entidades.
+    - Mantiene el orden y facilita listados estables.
+    - mapear() permite transformar la coleccion sin repetir codigo.
+
+Flujo de persistencia:
+    1. Se carga la BD a los repositorios al iniciar.
+    2. Se lee desde los repositorios.
+    3. Antes de guardar, se actualiza el objeto o se inserta en el repositorio.
+    4. Luego se persiste con GestorBaseDatos.
+
+
+13. EXCEPCIONES
+---------------
+BaseDatosException (checked, extends Exception)
+    Se lanza cuando falla una operacion JDBC o la lectura/escritura de datos.
+    Constructores: mensaje y mensaje + causa.
+
+ReservaInvalidaException (checked, extends Exception)
+    Se lanza cuando una reserva es invalida, tiene fechas incorrectas, no esta en estado
+    entregable o hay un cliente con ocupacion activa.
+
+VehiculoNoDisponibleException (checked, extends Exception)
+    Se lanza cuando se intenta entregar un vehiculo sin patente, ALQUILADO, EN_REPARACION,
+    EN_LIMPIEZA o FUERA_SERVICIO.
+
+UsuarioNoAutorizadoException (unchecked, extends RuntimeException)
+    Se lanza cuando un rol intenta ejecutar una accion no permitida, por ejemplo un CLIENTE
+    listando todos los clientes o un EMPLEADO administrando usuarios/limpiando la BD.
+
+DatoInvalidoException (unchecked, extends RuntimeException)
+    Se lanza cuando se ingresa un valor prohibido al completar datos en las altas de cliente,
+    usuario, reserva y automovil. Cada validacion lanza la excepcion con un mensaje especifico;
+    el metodo publico la captura y devuelve ese mensaje al menu. En automoviles incluye
+    patente/marca/modelo vacios, marca con numeros, anio fuera de rango, kilometraje negativo,
+    precio o seguro invalidos, puertas fuera de 1-5, transmision/estado invalidos y patente
+    duplicada.
+
+Tambien se usa IllegalArgumentException en validaciones internas simples, por ejemplo
+Entrega.validarDatos cuando el kilometraje de salida es negativo.
+
+Manejo:
+    Main y MenuConsola capturan las excepciones de las operaciones y muestran el mensaje.
+    La capa de servicio usa las excepciones de dominio para cortar el flujo cuando una regla
+    no se cumple.
+    GestorBaseDatos envuelve SQLException en BaseDatosException cuando corresponde.
+
+
+14. BASE DE DATOS
+-----------------
+Motor: SQLite.
+Archivo: alquiler_vehiculos.db.
+Conexion: config.ConnectionFactory, URL jdbc:sqlite:alquiler_vehiculos.db.
+Acceso: JDBC con PreparedStatement y try-with-resources para cerrar Connection, Statement
+y ResultSet.
+
+Tablas y columnas:
+    vehiculo
+        patente TEXT PRIMARY KEY
+        marca TEXT
+        modelo TEXT
+        anio INTEGER
+        kilometraje INTEGER
+        estado TEXT
+        precio_dia REAL
+        tarifa_seguro REAL
+        tipo TEXT
+        datos_especificos TEXT
+        activo INTEGER DEFAULT 1
+        Para Automovil: tipo=AUTOMOVIL y datos_especificos=puertas|transmision|kilometraje.
+
+    usuario
+        id_usuario TEXT PRIMARY KEY
+        username TEXT UNIQUE
+        password_hash TEXT
+        rol TEXT
+        activo INTEGER DEFAULT 1
+
+    cliente
+        id_cliente TEXT PRIMARY KEY
+        nombre TEXT
+        apellido TEXT
+        dni TEXT
+        telefono TEXT
+        email TEXT
+        fecha_registro TEXT
+        activo INTEGER DEFAULT 1
+
+    empleado
+        id_empleado TEXT PRIMARY KEY
+        nombre TEXT
+        apellido TEXT
+        dni TEXT
+        telefono TEXT
+        email TEXT
+        legajo TEXT
+        sucursal TEXT
+
+    reserva
+        id_reserva TEXT PRIMARY KEY
+        id_cliente TEXT
+        patente TEXT
+        fecha_inicio TEXT
+        fecha_fin TEXT
+        fecha_reserva TEXT
+        estado TEXT
+        creado_por TEXT
+
+    ocupacion
+        id_ocupacion TEXT PRIMARY KEY
+        id_cliente TEXT
+        patente TEXT
+        id_reserva TEXT
+        fecha_inicio TEXT
+        fecha_fin_estimada TEXT
+        fecha_reserva TEXT
+        fecha_inicio_reserva TEXT
+        estado TEXT
+        creado_por TEXT
+
+    entrega
+        id_entrega TEXT PRIMARY KEY
+        id_ocupacion TEXT
+        id_empleado TEXT
+        fecha_hora_entrega TEXT
+        kilometraje_salida INTEGER
+        observaciones TEXT
+
+    devolucion
+        id_devolucion TEXT PRIMARY KEY
+        id_ocupacion TEXT
+        id_empleado TEXT
+        fecha_hora_devolucion TEXT
+        kilometraje_entrada INTEGER
+        danios TEXT
+        observaciones TEXT
+        cargos_extra REAL
+        monto_final REAL
+
+Relaciones logicas:
+    Cliente 1 -- N Reserva.
+    Cliente 1 -- N Ocupacion.
+    Vehiculo 1 -- N Reserva.
+    Vehiculo 1 -- N Ocupacion.
+    Reserva 1 -- 0..1 Ocupacion.
+    Ocupacion 1 -- 1 Entrega.
+    Ocupacion 1 -- 0..1 Devolucion.
+    Empleado 1 -- N Entrega.
+    Empleado 1 -- N Devolucion.
+    Usuario 1 -- 0..1 Cliente o 0..1 Empleado, usando el mismo id logico.
+
+Importante: el esquema declara claves primarias y relaciones por columnas id, pero no declara
+restricciones FOREIGN KEY explicitas; la integridad referencial se controla desde el codigo
+Java, el estado activo de las entidades y el flujo de entrega.
+
+Migraciones automaticas al iniciar:
+    - CREATE TABLE IF NOT EXISTS para todas las tablas.
+    - Agrega reserva.creado_por.
+    - Agrega ocupacion.id_reserva, ocupacion.creado_por, ocupacion.fecha_reserva y
+      ocupacion.fecha_inicio_reserva.
+    - Agrega devolucion.observaciones.
+    - Agrega cliente.activo, vehiculo.activo y usuario.activo, con valor 1 por defecto.
+    - Convierte creado_por legacy (id de usuario o legajo de empleado) a username.
+    - Elimina la columna legacy reserva.monto_senia.
+    - Elimina la columna legacy empleado.fecha_contratacion.
+    - Convierte vehiculos con estado RESERVADO a DISPONIBLE.
+
+Operaciones principales:
+    - guardar/leer/actualizar vehiculos.
+    - guardar/leer clientes y empleados.
+    - guardar/leer/actualizar reservas y estados.
+    - guardar/leer usuarios.
+    - guardar/leer ocupaciones, entregas y devoluciones.
+    - actualizar el estado activo de clientes, vehiculos, reservas y usuarios.
+
+
+Carga de datos:
+    SistemaAlquiler.cargarDatosDesdeBD lee clientes, vehiculos, empleados, reservas, ocupaciones
+    y usuarios, y llena los seis repositorios. Luego pasa las ocupaciones al servicio y
+    reconstruye el historial de cada cliente desde repoOcupaciones.
+
+Escritura:
+    Los metodos de alta y modificacion actualizan primero el repositorio y despues llaman a
+    GestorBaseDatos. Las desactivaciones cambian el flag activo del repositorio y luego ejecutan
+    el UPDATE correspondiente; las filas no se borran. La entrega sigue eliminando la reserva
+    asociada porque es parte del flujo de concrecion del alquiler.
+
+
+15. REGLAS DE NEGOCIO CLAVE
+---------------------------
+- Una reserva no cambia el estado del vehiculo; queda DISPONIBLE hasta la entrega.
+- Dos reservas no pueden solaparse para el mismo cliente ni para el mismo vehiculo.
+- Un cliente no puede tener una ocupacion activa al reservar ni al recibir una entrega.
+- Solo las reservas PENDIENTES se listan para entrega.
+- Al entregar, la reserva se confirma, se convierte en CONCRETADA y luego se elimina; la
+  ocupacion conserva la instantanea de sus fechas.
+- La entrega usa la fecha de inicio de la reserva, no la fecha actual.
+- En la devolucion, el cargo extra es Vehiculo.tarifaSeguro; si hay danios se suma la multa
+  fija de 5000 y el vehiculo pasa a EN_REPARACION; si no hay danios pasa a EN_LIMPIEZA.
+- El historial muestra reserva, entrega, devolucion y observaciones de la devolucion.
+- No se puede desactivar un cliente, vehiculo o reserva con ocupacion activa.
+- Cliente, vehiculo y usuario nacen activos. Solo ADMIN puede pasarlos a inactivos;
+  los registros inactivos se conservan en la BD y dejan de listarse o seleccionarse.
+- El estado ALQUILADO no se asigna manualmente; lo asigna la entrega.
+- El estado RESERVADO ya no existe.
+- Los roles controlan el menu y ademas se validan en SistemaAlquiler, por lo que ocultar una
+  opcion no reemplaza el control de permisos de la capa de negocio.
+
+
+16. ARCHIVOS PRINCIPALES
+------------------------
+src/Main.java
+    Bucle principal y switch que delega en MenuConsola.
+
+src/MenuConsola.java
+    Menus, submenus agrupados, lectura de datos y presentacion de resultados.
+
+src/service/SistemaAlquiler.java
+    Fachada principal y reglas de negocio, control de roles, repositorios y coordinacion con
+    la persistencia.
+
+src/service/impl/ServicioAlquilerImpl.java
+    Implementacion de entregas, devoluciones y ocupaciones; comparte repositorios con la
+    fachada.
+
+src/service/ServicioAlquiler.java
+    Interfaz de la capa de servicio.
+
+src/dao/GestorBaseDatos.java
+    Todo el SQL, mapeo de filas, migraciones y operaciones de persistencia.
+
+src/config/ConnectionFactory.java
+    Conexion JDBC a SQLite y carga del driver.
+
+src/util/RepositorioGenerico.java
+    Contenedor generico en memoria basado en LinkedHashMap.
+
+src/model/
+    Persona, Cliente, Empleado, Usuario, Vehiculo, Automovil, Reserva, Ocupacion, Entrega,
+    Devolucion.
+
+src/interfaces/
+    Alquilable, Auditable.
+
+src/enums/
+    EstadoVehiculo, EstadoReserva, EstadoOcupacion, RolUsuario.
+
+src/exception/
+    BaseDatosException, ReservaInvalidaException, UsuarioNoAutorizadoException,
+    DatoInvalidoException, VehiculoNoDisponibleException.
+
+17. VERIFICACION REALIZADA
+---------------------------
+Se ejecuto una suite exhaustiva de 118 comprobaciones sobre una BD nueva, incluyendo:
+    - login correcto/incorrecto/inexistente;
+    - creacion de usuarios CLIENTE/EMPLEADO/ADMIN y validaciones de duplicados;
+    - altas de clientes y automoviles con datos validos e invalidos;
+    - reservas validas, fechas invertidas, indices invalidos y solapamientos;
+    - entrega, devolucion, cargos extra, observaciones y persistencia;
+    - desactivaciones con y sin ocupacion activa;
+    - persistencia de mariano;
+    - controles de acceso por rol e invitado.
+
+Suites adicionales ejecutadas: DniTest 7, DatoInvalidoTest 3, DoorTest 5, ClienteUser 15, SoftDelete 59, Envolvente 13, Migration 47, Invariant 36 en BD nueva
+y 36 en copia legacy, Role 25, Repositorio 20, Charge 14, Observaciones 10,
+PendingDelivery 15 y Menu 17. Todas finalizaron sin fallos. La BD real no se modifico.

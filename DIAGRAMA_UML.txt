@@ -6,7 +6,7 @@ DIAGRAMA UML - SISTEMA DE ALQUILER DE VEHICULOS
 [model]        -> Persona, Cliente, Empleado, Usuario, Vehiculo, Automovil, Reserva, Ocupacion, Entrega, Devolucion
 [enums]        -> RolUsuario, EstadoVehiculo, EstadoReserva, EstadoOcupacion
 [interfaces]   -> Alquilable, Auditable
-[exception]    -> VehiculoNoDisponibleException, ReservaInvalidaException, UsuarioNoAutorizadoException, BaseDatosException
+[exception]    -> VehiculoNoDisponibleException, ReservaInvalidaException, UsuarioNoAutorizadoException, DatoInvalidoException, BaseDatosException
 [dao]          -> GestorBaseDatos
 [config]       -> ConnectionFactory
 [service]      -> SistemaAlquiler, ServicioAlquiler
@@ -63,7 +63,7 @@ USUARIO (-idUsuario:String, -username:String, -passwordHash:String, -rol:RolUsua
 AUTOMOVIL (-cantidadPuertas:int, -transmision:String) -> calcularCosto() sobreescrito
 
 RESERVA (-idReserva:String, -cliente:Cliente, -vehiculo:Vehiculo, -fechaInicio:LocalDate,
-         -fechaFin:LocalDate, -fechaReserva:LocalDateTime, -estado:EstadoReserva, -activo:boolean,
+         -fechaFin:LocalDate, -fechaReserva:LocalDateTime, -estado:EstadoReserva,
          -creadoPor:String (username del usuario))
         +validar(): boolean | +confirmar(): void | +cancelar(): void
         +calcularMontoTotal(): double | +getMontoSenia(): double (derivado de tarifaSeguro)
@@ -91,7 +91,7 @@ DEVOLUCION (-idDevolucion:String, -ocupacion:Ocupacion, -empleado:Empleado, -fec
 GestorBaseDatos -> Manejo exclusivo de SQL (crearTablas, guardarUsuario, guardarVehiculo,
                    cargarUsuarioPorId, cargarUsuarioPorUsername, cargarUsuarios, cargarVehiculos,
                    actualizarVehiculo, eliminarReserva, actualizarActivoCliente,
-                   actualizarActivoVehiculo, actualizarActivoReserva, actualizarActivoUsuario,
+                   actualizarActivoVehiculo, actualizarActivoUsuario,
                    migraciones con agregarColumnaSiFalta)
 
 ConnectionFactory: +getConnection(): Connection | +cerrar(AutoCloseable): void
@@ -136,6 +136,7 @@ Colecciones utilizadas: ArrayList<T>, LinkedHashMap<K,V> (mantiene orden de carg
 VehiculoNoDisponibleException extends Exception
 ReservaInvalidaException      extends Exception
 UsuarioNoAutorizadoException  extends RuntimeException
+DatoInvalidoException         extends RuntimeException
 BaseDatosException            extends Exception
 
 10. RELACIONES ENTRE OBJETOS
@@ -162,7 +163,7 @@ GestorBaseDatos maneja todo el SQL. SistemaAlquiler carga la BD en repositorios 
 las altas y modificaciones se aplican primero al repositorio y luego se persisten con GestorBaseDatos.
 Migraciones: agregarColumnaSiFalta para reserva.creado_por, ocupacion.id_reserva,
 ocupacion.creado_por, ocupacion.fecha_reserva, ocupacion.fecha_inicio_reserva, devolucion.observaciones,
-cliente.activo, vehiculo.activo, reserva.activo y usuario.activo.
+cliente.activo, vehiculo.activo y usuario.activo.
 Tambien se elimina la columna legacy reserva.monto_senia si existe.
 Al entregar se borra la reserva de la tabla reserva y de repoReservas; la ocupacion
 conserva fecha_reserva/fecha_inicio_reserva y fechaFinReserva se deriva de fechaFinEstimada.
@@ -175,14 +176,14 @@ convierte ids de usuario o legajos legacy al username correspondiente.
    Menu: sin sesion solo iniciar sesion, crear usuario CLIENTE y salir. Con sesion agrupa en Clientes,
    Automoviles, Reservas, Entregas, Devoluciones y Usuarios; cada categoria tiene su subswitch y solo se muestran las permitidas por rol
 2. Usuario inicia sesion (ADMIN/EMPLEADO o CLIENTE; consulta repoUsuarios y adjunta su Empleado o Cliente desde repositorios)
-3. Usuarios: sin sesion solo se autorregistra CLIENTE; con sesion ADMIN/EMPLEADO crean Empleado+Usuario o Cliente+Usuario; solo ADMIN crea ADMIN
+3. Usuarios: sin sesion solo se autorregistra CLIENTE; con sesion ADMIN/EMPLEADO crean Empleado+Usuario o Cliente+Usuario; solo ADMIN crea ADMIN. Clientes > Crear cliente tambien crea Usuario CLIENTE con username nombre_apellido y password DNI
 4. ADMIN/EMPLEADO agregan automoviles con validaciones y datos reales de puertas/transmision
 5. Listados leen desde repositorios genericos y conservan el orden de carga/alta
 6. Clientes se crean con el constructor de Cliente (Persona)
 7. Reservas/Entregas/Devoluciones se persisten con el usuario/empleado real; la reserva de un CLIENTE usa su ficha
-7b. En Reservas, el submenu permite crear/cancelar y listar (ADMIN/EMPLEADO); desactivar reservas es exclusivo de ADMIN. Cancelar pasa la reserva a CANCELADA y persiste; CLIENTE solo cancela las propias, ADMIN/EMPLEADO cualquiera
+7b. En Reservas, el submenu permite crear/cancelar y listar (ADMIN/EMPLEADO). Cancelar pasa la reserva a CANCELADA y persiste; CLIENTE solo cancela las propias, ADMIN/EMPLEADO cualquiera
 7c. La entrega lista solo reservas PENDIENTES, usa reserva.fechaInicio como fecha de entrega e inicio de la ocupacion; guarda la instantanea de fechas y elimina la reserva de la BD y de repoReservas
 7d. El historial muestra RESERVA, ENTREGA, DEVOLUCION y OBSERVACIONES cargadas al devolver el vehiculo; la entrega ya no pide observaciones
 7e. La devolucion toma los cargos extra de Vehiculo.tarifaSeguro, sin pedirlos por teclado; la multa por daños se sigue aplicando automaticamente
-8. En Clientes/Automoviles/Reservas y Usuarios, solo ADMIN puede pasar registros de activo a inactivo; se bloquea si hay ocupacion activa y los datos se conservan en la BD pero dejan de listarse
+8. En Clientes/Automoviles y Usuarios, solo ADMIN puede pasar registros de activo a inactivo; se bloquea si hay ocupacion activa y los datos se conservan en la BD pero dejan de listarse. Las reservas se cancelan con su estado
 10. Polimorfismo con ArrayList<Vehiculo>, genericos con RepositorioGenerico para todas las entidades

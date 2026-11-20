@@ -209,3 +209,20 @@ Elimine del DAO los metodos de borrado individual que quedaron sin uso. Actualic
 [20/11/2026] - Separacion de Main y MenuConsola
 Reduje Main a la creacion de SistemaAlquiler/MenuConsola, el bucle principal y un switch que delega las acciones. Mueva a MenuConsola los menus, submenus, prompts, lecturas por Scanner y la impresion de resultados.
 La logica de negocio, permisos, repositorios y persistencia siguen en SistemaAlquiler, ServicioAlquilerImpl, RepositorioGenerico y GestorBaseDatos. Actualice README, DIAGRAMA_UML y DOCUMENTACION_SISTEMA. Compilacion completa y prueba de menu 17/17.
+[20/11/2026] - Alta de cliente con usuario automatico
+crearCliente ahora genera tambien un Usuario CLIENTE con el mismo id de la ficha. El username se arma como nombre_apellido en minusculas, reemplazando espacios internos por guion bajo, y la contrasena es el DNI.
+Si el username ya existe, no se crea la ficha ni el usuario. Se guardan primero ambos en repoClientes/repoUsuarios y luego en cliente/usuario. Verificado con ClienteUserTest 15/15 y las suites funcionales existentes.
+[20/11/2026] - Limite de puertas de automovil
+Agregue la validacion cantidadPuertas > 5 en agregarAutomovil; ahora solo se aceptan valores de 1 a 5. Actualice el prompt del menu y la documentacion.
+[20/11/2026] - Excepcion DatoInvalidoException en alta de automoviles
+Agregue DatoInvalidoException (RuntimeException) con mensaje y causa. La validacion de agregarAutomovil ahora lanza esta excepcion para cada valor prohibido (patente/marca/modelo, anio, kilometraje, precio, seguro, puertas, transmision, estado y patente duplicada) y el metodo publico la captura para devolver el mensaje especifico al menu.
+Actualice README, DIAGRAMA_UML y DOCUMENTACION_SISTEMA. Verificado con DoorTest 5/5 y compilacion completa.
+[20/11/2026] - DatoInvalidoException en todas las altas
+Extendi DatoInvalidoException a crearCliente, crearUsuario, crearReserva/reservarComoCliente y agregarAutomovil. Las validaciones de campos, duplicados, indices, fechas y solapamientos lanzan la excepcion con un mensaje especifico; el metodo publico la captura y devuelve el mensaje al menu. validarDatosPersona ahora tambien lanza la excepcion.
+Verificado con DatoInvalidoTest 3/3, DoorTest 5/5, ClienteUserTest 15/15, ExhaustiveTest 121/121, SoftDeleteTest 66/66 y el resto de suites funcionales.
+[20/11/2026] - Validacion de longitud de DNI
+Agregue la regla de DNI entre 7 y 8 caracteres en validarDatosPersona, por lo que aplica a crearCliente y crearUsuario. Si no se cumple, se lanza DatoInvalidoException con el mensaje "El DNI debe tener entre 7 y 8 caracteres." y el metodo de alta la captura para devolverlo al menu.
+Verificado con DniTest 7/7, DatoInvalidoTest 3/3 y el resto de suites funcionales.
+[20/11/2026] - Eliminacion de desactivar reserva
+Quite la opcion Desactivar reserva del submenu Reservas y el metodo SistemaAlquiler.desactivarReserva. Elimine el flag activo de Reserva, su columna en la BD, el mapeo y las actualizaciones asociadas. Al desactivar un cliente o vehiculo, sus reservas ahora se cancelan usando el estado CANCELADA, reutilizando el flujo existente de cancelacion. La migracion convierte reservas legacy con activo=0 a CANCELADA y elimina la columna reserva.activo.
+Actualice README, DIAGRAMA_UML y DOCUMENTACION_SISTEMA. Verificado con ExhaustiveTest 118/118, SoftDeleteTest 59/59, Migration 47/47, Invariant 36/36 nueva, legacy y copia de la BD actual, Role 25/25, Envolvente 13/13, Repositorio 20/20, Charge 14/14, Observaciones 10/10, PendingDelivery 15/15, Menu 17/17, DniTest 7/7, DatoInvalidoTest 3/3, DoorTest 5/5 y ClienteUser 15/15.

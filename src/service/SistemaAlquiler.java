@@ -217,7 +217,7 @@ public class SistemaAlquiler {
     private List<Reserva> reservasActivas() {
         List<Reserva> activas = new ArrayList<Reserva>();
         for (Reserva reserva : repoReservas.listar()) {
-            if (reserva != null && reserva.isActivo()
+            if (reserva != null
                     && reserva.getCliente() != null && reserva.getCliente().isActivo()
                     && reserva.getVehiculo() != null && reserva.getVehiculo().isActivo()) {
                 activas.add(reserva);
@@ -311,46 +311,64 @@ public class SistemaAlquiler {
         if (usuarioLogueado == null) {
             return "Debe iniciar sesión para crear clientes.";
         }
-
         if (usuarioLogueado.getRol() != RolUsuario.ADMINISTRADOR && usuarioLogueado.getRol() != RolUsuario.EMPLEADO) {
             throw new UsuarioNoAutorizadoException("Solo un ADMINISTRADOR o EMPLEADO puede crear clientes.");
         }
-
-        String errorDatosPersona = validarDatosPersona(nombre, apellido, dni, telefono, email);
-        if (errorDatosPersona != null) {
-            return errorDatosPersona;
-        }
-
-        String dniNormalizado = dni.trim();
-        for (Cliente existente : repoClientes.listar()) {
-            if (existente != null && existente.getDni() != null
-                    && existente.getDni().equalsIgnoreCase(dniNormalizado)) {
-                return "Ya existe un cliente con ese DNI.";
+        try {
+            validarDatosPersona(nombre, apellido, dni, telefono, email);
+            String dniNormalizado = dni.trim();
+            for (Cliente existente : repoClientes.listar()) {
+                if (existente != null && existente.getDni() != null
+                        && existente.getDni().equalsIgnoreCase(dniNormalizado)) {
+                    throw new DatoInvalidoException("Ya existe un cliente con ese DNI.");
+                }
             }
-        }
 
-        Cliente nuevoCliente = new Cliente(UUID.randomUUID().toString(), nombre.trim(), apellido.trim(), dniNormalizado,
-                telefono != null ? telefono.trim() : "", email.trim(), java.time.LocalDate.now());
-        repoClientes.guardar(nuevoCliente.getId(), nuevoCliente);
-        gestorBaseDatos.guardarCliente(nuevoCliente);
-        return "Cliente " + nuevoCliente.getNombreCompleto() + " creado correctamente.";
+            String username = generarUsernameCliente(nombre, apellido);
+            for (Usuario usuarioExistente : repoUsuarios.listar()) {
+                if (usuarioExistente != null && usuarioExistente.getUsername() != null
+                        && usuarioExistente.getUsername().equalsIgnoreCase(username)) {
+                    throw new DatoInvalidoException("Ya existe un usuario con ese nombre de usuario.");
+                }
+            }
+
+            Cliente nuevoCliente = new Cliente(UUID.randomUUID().toString(), nombre.trim(), apellido.trim(), dniNormalizado,
+                    telefono != null ? telefono.trim() : "", email.trim(), java.time.LocalDate.now());
+            Usuario nuevoUsuario = new Usuario(nuevoCliente.getId(), username, dniNormalizado,
+                    RolUsuario.CLIENTE, true, null, nuevoCliente);
+            repoClientes.guardar(nuevoCliente.getId(), nuevoCliente);
+            repoUsuarios.guardar(nuevoUsuario.getIdUsuario(), nuevoUsuario);
+            gestorBaseDatos.guardarCliente(nuevoCliente);
+            gestorBaseDatos.guardarUsuario(nuevoUsuario);
+            return "Cliente " + nuevoCliente.getNombreCompleto() + " creado correctamente. Usuario: "
+                    + username + " | Contraseña: " + dniNormalizado;
+        } catch (DatoInvalidoException e) {
+            return e.getMessage();
+        } catch (UsuarioNoAutorizadoException e) {
+            throw e;
+        } catch (Exception e) {
+            return "Error al crear cliente: " + e.getMessage();
+        }
+    }
+    private String generarUsernameCliente(String nombre, String apellido) {
+        String base = (nombre.trim() + "_" + apellido.trim()).toLowerCase(java.util.Locale.ROOT);
+        return base.replaceAll("\\s+", "_").replaceAll("_+", "_");
     }
 
     public String crearReserva(int idxCliente, int idxVehiculo, LocalDate inicio, LocalDate fin) {
-        if (usuarioLogueado == null) {
-            return "Debe iniciar sesión para crear reservas.";
+        try {
+            validarDato(usuarioLogueado == null, "Debe iniciar sesión para crear reservas.");
+            validarDato(usuarioLogueado.getRol() == RolUsuario.CLIENTE,
+                    "Los usuarios CLIENTE solo pueden reservar con su propia ficha.");
+            validarDato(clientesActivos().isEmpty(), "No hay clientes registrados. Cree un cliente primero.");
+            List<Cliente> clientesActuales = clientesActivos();
+            validarDato(idxCliente < 0 || idxCliente >= clientesActuales.size(), "Índices inválidos.");
+            return crearReservaParaCliente(clientesActuales.get(idxCliente), idxVehiculo, inicio, fin);
+        } catch (DatoInvalidoException e) {
+            return e.getMessage();
+        } catch (Exception e) {
+            return "Error al crear reserva: " + e.getMessage();
         }
-        if (usuarioLogueado.getRol() == RolUsuario.CLIENTE) {
-            return "Los usuarios CLIENTE solo pueden reservar con su propia ficha.";
-        }
-        if (clientesActivos().isEmpty()) {
-            return "No hay clientes registrados. Cree un cliente primero.";
-        }
-        List<Cliente> clientesActuales = clientesActivos();
-        if (idxCliente < 0 || idxCliente >= clientesActuales.size()) {
-            return "Índices inválidos.";
-        }
-        return crearReservaParaCliente(clientesActuales.get(idxCliente), idxVehiculo, inicio, fin);
     }
 
     public boolean esCliente() {
@@ -358,19 +376,17 @@ public class SistemaAlquiler {
     }
 
     public String reservarComoCliente(int idxVehiculo, LocalDate inicio, LocalDate fin) {
-        if (usuarioLogueado == null) {
-            return "Debe iniciar sesión para crear reservas.";
+        try {
+            validarDato(usuarioLogueado == null, "Debe iniciar sesión para crear reservas.");
+            validarDato(!esCliente(), "Esta opción es exclusiva para usuarios CLIENTE.");
+            validarDato(usuarioLogueado.getCliente() == null, "El usuario no tiene una ficha de cliente asociada.");
+            validarDato(inicio == null || fin == null, "Debe indicar fecha de inicio y fecha de fin.");
+            return crearReservaParaCliente(usuarioLogueado.getCliente(), idxVehiculo, inicio, fin);
+        } catch (DatoInvalidoException e) {
+            return e.getMessage();
+        } catch (Exception e) {
+            return "Error al crear reserva: " + e.getMessage();
         }
-        if (!esCliente()) {
-            return "Esta opción es exclusiva para usuarios CLIENTE.";
-        }
-        if (usuarioLogueado.getCliente() == null) {
-            return "El usuario no tiene una ficha de cliente asociada.";
-        }
-        if (inicio == null || fin == null) {
-            return "Debe indicar fecha de inicio y fecha de fin.";
-        }
-        return crearReservaParaCliente(usuarioLogueado.getCliente(), idxVehiculo, inicio, fin);
     }
 
     public String crearReservaCliente(int idxVehiculo, LocalDate inicio, LocalDate fin) {
@@ -379,69 +395,68 @@ public class SistemaAlquiler {
 
     private String crearReservaParaCliente(Cliente cliente, int idxVehiculo, LocalDate inicio, LocalDate fin) {
         try {
-            if (cliente == null) {
-                return "Cliente inválido.";
-            }
-            if (!cliente.isActivo()) {
-                return "El cliente está inactivo.";
-            }
-            if (inicio == null || fin == null) {
-                return "Debe indicar fecha de inicio y fecha de fin.";
-            }
+            validarDato(cliente == null, "Cliente inválido.");
+            validarDato(!cliente.isActivo(), "El cliente está inactivo.");
+            validarDato(inicio == null || fin == null, "Debe indicar fecha de inicio y fecha de fin.");
+
             List<Vehiculo> vehiculosDisponibles = new ArrayList<Vehiculo>();
             for (Vehiculo vehiculoDisponible : vehiculosActivos()) {
                 if (vehiculoDisponible != null && vehiculoDisponible.getEstado() == enums.EstadoVehiculo.DISPONIBLE) {
                     vehiculosDisponibles.add(vehiculoDisponible);
                 }
             }
-            if (vehiculosDisponibles.isEmpty()) {
-                return "No hay automóviles disponibles para reservar.";
-            }
-            if (idxVehiculo < 0 || idxVehiculo >= vehiculosDisponibles.size()) {
-                return "Índices inválidos.";
-            }
+            validarDato(vehiculosDisponibles.isEmpty(), "No hay automóviles disponibles para reservar.");
+            validarDato(idxVehiculo < 0 || idxVehiculo >= vehiculosDisponibles.size(), "Índices inválidos.");
+
             List<Reserva> reservasActuales = reservasActivas();
             for (Reserva r : reservasActuales) {
-                if (r != null && r.getCliente() != null && r.getCliente().getId().equals(cliente.getId()) && r.getEstado() != enums.EstadoReserva.CANCELADA && r.getEstado() != enums.EstadoReserva.CONCRETADA) {
+                if (r != null && r.getCliente() != null && r.getCliente().getId().equals(cliente.getId())
+                        && r.getEstado() != enums.EstadoReserva.CANCELADA
+                        && r.getEstado() != enums.EstadoReserva.CONCRETADA) {
                     if (r.getFechaInicio() != null && r.getFechaFin() != null) {
-                        if (!(fin.isBefore(r.getFechaInicio()) || inicio.isAfter(r.getFechaFin()))) {
-                            return "El cliente ya tiene una reserva que se solapa con las fechas.";
-                        }
+                        validarDato(!(fin.isBefore(r.getFechaInicio()) || inicio.isAfter(r.getFechaFin())),
+                                "El cliente ya tiene una reserva que se solapa con las fechas.");
                     }
                 }
             }
+
             Vehiculo vehiculoSeleccionado = vehiculosDisponibles.get(idxVehiculo);
             for (Reserva r : reservasActuales) {
-                if (r != null && r.getVehiculo() != null && r.getVehiculo().getPatente().equals(vehiculoSeleccionado.getPatente()) && r.getEstado() != enums.EstadoReserva.CANCELADA && r.getEstado() != enums.EstadoReserva.CONCRETADA) {
+                if (r != null && r.getVehiculo() != null
+                        && r.getVehiculo().getPatente().equals(vehiculoSeleccionado.getPatente())
+                        && r.getEstado() != enums.EstadoReserva.CANCELADA
+                        && r.getEstado() != enums.EstadoReserva.CONCRETADA) {
                     if (r.getFechaInicio() != null && r.getFechaFin() != null) {
-                        if (!(fin.isBefore(r.getFechaInicio()) || inicio.isAfter(r.getFechaFin()))) {
-                            return "El vehículo ya tiene una reserva que se solapa con las fechas.";
-                        }
+                        validarDato(!(fin.isBefore(r.getFechaInicio()) || inicio.isAfter(r.getFechaFin())),
+                                "El vehículo ya tiene una reserva que se solapa con las fechas.");
                     }
                 }
             }
+
             for (Ocupacion o : repoOcupaciones.listar()) {
-                if (o != null && o.getCliente() != null && o.getCliente().getId().equals(cliente.getId()) && o.estaActiva()) {
-                    return "El cliente ya tiene un automóvil alquilado al mismo tiempo.";
+                if (o != null && o.getCliente() != null && o.getCliente().getId().equals(cliente.getId())
+                        && o.estaActiva()) {
+                    throw new DatoInvalidoException("El cliente ya tiene un automóvil alquilado al mismo tiempo.");
                 }
             }
-            Vehiculo vehiculo = vehiculoSeleccionado;
-            Reserva reserva = new Reserva(UUID.randomUUID().toString(), cliente, vehiculo, inicio, fin,
+
+            Reserva reserva = new Reserva(UUID.randomUUID().toString(), cliente, vehiculoSeleccionado, inicio, fin,
                     LocalDateTime.now(), EstadoReserva.PENDIENTE,
                     usuarioLogueado != null ? usuarioLogueado.getUsername() : "");
-            if (reserva.validar()) {
-                repoReservas.guardar(reserva.getIdReserva(), reserva);
-                gestorBaseDatos.guardarReserva(reserva);
-                return "Reserva creada correctamente. ID: " + reserva.getIdReserva().substring(0, 8) +
-                        "\nCliente: " + cliente.getNombreCompleto() + " | DNI: " + cliente.getDni() +
-                        "\nMonto total estimado: $" + reserva.calcularMontoTotal();
+            if (!reserva.validar()) {
+                throw new DatoInvalidoException("Fechas inválidas.");
             }
-            return "Fechas inválidas.";
+            repoReservas.guardar(reserva.getIdReserva(), reserva);
+            gestorBaseDatos.guardarReserva(reserva);
+            return "Reserva creada correctamente. ID: " + reserva.getIdReserva().substring(0, 8) +
+                    "\nCliente: " + cliente.getNombreCompleto() + " | DNI: " + cliente.getDni() +
+                    "\nMonto total estimado: $" + reserva.calcularMontoTotal();
+        } catch (DatoInvalidoException e) {
+            throw e;
         } catch (Exception e) {
             return "Error al crear reserva: " + e.getMessage();
         }
     }
-
     public String listarClientes() {
         if (usuarioLogueado == null) {
             return "Debe iniciar sesión para listar clientes.";
@@ -574,12 +589,13 @@ public class SistemaAlquiler {
                         + (o.getVehiculo() != null ? o.getVehiculo().getPatente() : "sin patente") + ").";
             }
         }
-        int reservasDesactivadas = 0;
+        int reservasCanceladas = 0;
         for (Reserva r : repoReservas.listar()) {
-            if (r != null && r.isActivo() && r.getCliente() != null && r.getCliente().getId().equals(c.getId())) {
-                r.setActivo(false);
-                gestorBaseDatos.actualizarActivoReserva(r.getIdReserva(), false);
-                reservasDesactivadas++;
+            if (r != null && r.getCliente() != null && r.getCliente().getId().equals(c.getId())
+                    && r.getEstado() != EstadoReserva.CANCELADA && r.getEstado() != EstadoReserva.CONCRETADA) {
+                r.cancelar();
+                gestorBaseDatos.actualizarEstadoReserva(r.getIdReserva(), EstadoReserva.CANCELADA.name());
+                reservasCanceladas++;
             }
         }
         c.setActivo(false);
@@ -589,7 +605,7 @@ public class SistemaAlquiler {
             usuarioAsociado.setActivo(false);
             gestorBaseDatos.actualizarActivoUsuario(usuarioAsociado.getIdUsuario(), false);
         }
-        return "Cliente desactivado correctamente. Se desactivaron " + reservasDesactivadas + " reserva(s).";
+        return "Cliente desactivado correctamente. Se cancelaron " + reservasCanceladas + " reserva(s).";
     }
 
     public String desactivarVehiculo(int indice) {
@@ -607,38 +623,18 @@ public class SistemaAlquiler {
                 return "No se puede desactivar el vehículo: tiene una ocupación activa.";
             }
         }
-        int reservasDesactivadas = 0;
+        int reservasCanceladas = 0;
         for (Reserva r : repoReservas.listar()) {
-            if (r != null && r.isActivo() && r.getVehiculo() != null
-                    && r.getVehiculo().getPatente().equals(v.getPatente())) {
-                r.setActivo(false);
-                gestorBaseDatos.actualizarActivoReserva(r.getIdReserva(), false);
-                reservasDesactivadas++;
+            if (r != null && r.getVehiculo() != null && r.getVehiculo().getPatente().equals(v.getPatente())
+                    && r.getEstado() != EstadoReserva.CANCELADA && r.getEstado() != EstadoReserva.CONCRETADA) {
+                r.cancelar();
+                gestorBaseDatos.actualizarEstadoReserva(r.getIdReserva(), EstadoReserva.CANCELADA.name());
+                reservasCanceladas++;
             }
         }
         v.setActivo(false);
         gestorBaseDatos.actualizarActivoVehiculo(v.getPatente(), false);
-        return "Vehículo desactivado correctamente. Se desactivaron " + reservasDesactivadas + " reserva(s).";
-    }
-
-    public String desactivarReserva(int indice) {
-        if (usuarioLogueado == null) return "Debe iniciar sesión primero";
-        if (usuarioLogueado.getRol() != RolUsuario.ADMINISTRADOR) {
-            throw new UsuarioNoAutorizadoException("Solo un ADMINISTRADOR puede desactivar reservas.");
-        }
-        List<Reserva> reservasActuales = reservasActivas();
-        if (indice < 0 || indice >= reservasActuales.size()) return "Reserva inválida";
-        Reserva r = reservasActuales.get(indice);
-        if (r == null) return "Reserva inválida";
-        for (Ocupacion o : repoOcupaciones.listar()) {
-            if (o != null && o.getReserva() != null && o.getReserva().getIdReserva().equals(r.getIdReserva())
-                    && o.estaActiva()) {
-                return "No se puede desactivar la reserva: tiene una ocupación activa.";
-            }
-        }
-        r.setActivo(false);
-        gestorBaseDatos.actualizarActivoReserva(r.getIdReserva(), false);
-        return "Reserva desactivada correctamente.";
+        return "Vehículo desactivado correctamente. Se cancelaron " + reservasCanceladas + " reserva(s).";
     }
 
     private void recargarOcupacionesDesdeBD() {
@@ -1030,98 +1026,74 @@ public class SistemaAlquiler {
         if (usuarioLogueado == null) {
             return "Debe iniciar sesión para agregar vehículos.";
         }
-
         if (usuarioLogueado.getRol() != RolUsuario.ADMINISTRADOR && usuarioLogueado.getRol() != RolUsuario.EMPLEADO) {
             throw new UsuarioNoAutorizadoException("Solo un ADMINISTRADOR o EMPLEADO puede agregar vehículos.");
         }
-
-        if (patente == null || patente.trim().isEmpty()) {
-            return "La patente no puede estar vacía.";
-        }
-        patente = patente.trim();
-
-        if (marca == null || marca.trim().isEmpty()) {
-            return "La marca no puede estar vacía.";
-        }
-
-        if (marca.matches(".*\\d.*")) {
-            return "La marca no puede contener números.";
-        }
-
-        if (modelo == null || modelo.trim().isEmpty()) {
-            return "El modelo no puede estar vacío.";
-        }
-
-        int anioActual = java.time.Year.now().getValue();
-        if (anio > anioActual) {
-            return "El año de fabricación no puede superar el año actual.";
-        }
-
-        if (anio < 1900) {
-            return "El año de fabricación no es válido.";
-        }
-
-        if (kilometraje < 0) {
-            return "El kilometraje no puede ser negativo.";
-        }
-
-        if (precioDia <= 0) {
-            return "El precio por día debe ser mayor a 0.";
-        }
-
-        if (tarifaSeguro < 0) {
-            return "La tarifa de seguro no puede ser negativa.";
-        }
-
-        if (cantidadPuertas <= 0) {
-            return "La cantidad de puertas debe ser mayor a 0.";
-        }
-
-        if (transmision == null || transmision.trim().isEmpty()) {
-            return "La transmisión no puede estar vacía.";
-        }
-
-        if (estadoTexto == null || estadoTexto.trim().isEmpty()) {
-            return "Estado inválido. Use: DISPONIBLE, EN_LIMPIEZA, EN_REPARACION o FUERA_SERVICIO.";
-        }
-
-        String transmisionNormalizada = transmision.trim().toUpperCase();
-        if (!transmisionNormalizada.equals(Automovil.TRANSMISION_MANUAL) &&
-                !transmisionNormalizada.equals(Automovil.TRANSMISION_AUTOMATICA)) {
-            return "Transmisión inválida. Use MANUAL o AUTOMATICA.";
-        }
-
         try {
-            for (Vehiculo existente : repoVehiculos.listar()) {
-                if (existente != null && existente.getPatente() != null
-                        && existente.getPatente().equalsIgnoreCase(patente.trim())) {
-                    return "Ya existe un vehículo con esa patente.";
-                }
-            }
-
-            EstadoVehiculo estadoVehiculo;
-            try {
-                estadoVehiculo = EstadoVehiculo.valueOf(estadoTexto.toUpperCase().trim());
-            } catch (Exception excepcion) {
-                return "Estado inválido. Use: DISPONIBLE, EN_LIMPIEZA, EN_REPARACION o FUERA_SERVICIO.";
-            }
-            if (estadoVehiculo == EstadoVehiculo.ALQUILADO) {
-                return "No se puede crear un vehículo en estado ALQUILADO.";
-            }
-
-            Vehiculo nuevoVehiculo = new Automovil(patente, marca, modelo, anio, kilometraje, estadoVehiculo, precioDia, tarifaSeguro,
-                    cantidadPuertas, transmisionNormalizada);
-
-            repoVehiculos.guardar(nuevoVehiculo.getPatente(), nuevoVehiculo);
-            gestorBaseDatos.guardarVehiculo(nuevoVehiculo);
-            return "Automóvil " + patente + " agregado correctamente a la base de datos.";
-        } catch (UsuarioNoAutorizadoException excepcion) {
-            throw excepcion;
+            return crearAutomovilValidado(patente, marca, modelo, anio, kilometraje, estadoTexto,
+                    precioDia, tarifaSeguro, cantidadPuertas, transmision);
+        } catch (DatoInvalidoException e) {
+            return e.getMessage();
+        } catch (UsuarioNoAutorizadoException e) {
+            throw e;
         } catch (Exception e) {
             return "Error al agregar vehículo: " + e.getMessage();
         }
     }
 
+    private String crearAutomovilValidado(String patente, String marca, String modelo, int anio, int kilometraje,
+                                          String estadoTexto, double precioDia, double tarifaSeguro,
+                                          int cantidadPuertas, String transmision) throws Exception {
+        validarDato(patente == null || patente.trim().isEmpty(), "La patente no puede estar vacía.");
+        patente = patente.trim();
+        validarDato(marca == null || marca.trim().isEmpty(), "La marca no puede estar vacía.");
+        validarDato(marca.matches(".*\\d.*"), "La marca no puede contener números.");
+        validarDato(modelo == null || modelo.trim().isEmpty(), "El modelo no puede estar vacío.");
+        int anioActual = java.time.Year.now().getValue();
+        validarDato(anio > anioActual, "El año de fabricación no puede superar el año actual.");
+        validarDato(anio < 1900, "El año de fabricación no es válido.");
+        validarDato(kilometraje < 0, "El kilometraje no puede ser negativo.");
+        validarDato(precioDia <= 0, "El precio por día debe ser mayor a 0.");
+        validarDato(tarifaSeguro < 0, "La tarifa de seguro no puede ser negativa.");
+        validarDato(cantidadPuertas <= 0, "La cantidad de puertas debe ser mayor a 0.");
+        validarDato(cantidadPuertas > 5, "La cantidad de puertas no puede ser mayor a 5.");
+        validarDato(transmision == null || transmision.trim().isEmpty(), "La transmisión no puede estar vacía.");
+        validarDato(estadoTexto == null || estadoTexto.trim().isEmpty(),
+                "Estado inválido. Use: DISPONIBLE, EN_LIMPIEZA, EN_REPARACION o FUERA_SERVICIO.");
+
+        String transmisionNormalizada = transmision.trim().toUpperCase();
+        validarDato(!transmisionNormalizada.equals(Automovil.TRANSMISION_MANUAL)
+                        && !transmisionNormalizada.equals(Automovil.TRANSMISION_AUTOMATICA),
+                "Transmisión inválida. Use MANUAL o AUTOMATICA.");
+
+        for (Vehiculo existente : repoVehiculos.listar()) {
+            if (existente != null && existente.getPatente() != null
+                    && existente.getPatente().equalsIgnoreCase(patente)) {
+                throw new DatoInvalidoException("Ya existe un vehículo con esa patente.");
+            }
+        }
+
+        EstadoVehiculo estadoVehiculo;
+        try {
+            estadoVehiculo = EstadoVehiculo.valueOf(estadoTexto.toUpperCase().trim());
+        } catch (IllegalArgumentException e) {
+            throw new DatoInvalidoException("Estado inválido. Use: DISPONIBLE, EN_LIMPIEZA, EN_REPARACION o FUERA_SERVICIO.");
+        }
+        validarDato(estadoVehiculo == EstadoVehiculo.ALQUILADO,
+                "No se puede crear un vehículo en estado ALQUILADO.");
+
+        Vehiculo nuevoVehiculo = new Automovil(patente, marca, modelo, anio, kilometraje, estadoVehiculo,
+                precioDia, tarifaSeguro, cantidadPuertas, transmisionNormalizada);
+        repoVehiculos.guardar(nuevoVehiculo.getPatente(), nuevoVehiculo);
+        gestorBaseDatos.guardarVehiculo(nuevoVehiculo);
+        return "Automóvil " + patente + " agregado correctamente a la base de datos.";
+    }
+
+    private void validarDato(boolean condicion, String mensaje) {
+        if (condicion) {
+            throw new DatoInvalidoException(mensaje);
+        }
+    }
     public String getVehiculoInfo(int idx) {
         try {
             java.util.ArrayList<Vehiculo> contenedorGenerico = new java.util.ArrayList<Vehiculo>();
@@ -1221,54 +1193,38 @@ public class SistemaAlquiler {
                 && usuarioLogueado.getRol() != RolUsuario.EMPLEADO) {
             throw new UsuarioNoAutorizadoException("Solo un ADMINISTRADOR o EMPLEADO puede crear usuarios.");
         }
-
-        if (nombreUsuario == null || nombreUsuario.trim().isEmpty()) {
-            return "El nombre de usuario no puede estar vacío.";
-        }
-
-        if (contrasenia == null || contrasenia.trim().isEmpty()) {
-            return "La contraseña no puede estar vacía.";
-        }
-
-        if (rolTexto == null || rolTexto.trim().isEmpty()) {
-            return "Rol inválido. Roles permitidos: ADMINISTRADOR, EMPLEADO, CLIENTE";
-        }
-
-        RolUsuario rolUsuario;
         try {
-            rolUsuario = RolUsuario.valueOf(rolTexto.toUpperCase().trim());
-        } catch (Exception excepcion) {
-            return "Rol inválido. Roles permitidos: ADMINISTRADOR, EMPLEADO, CLIENTE";
-        }
+            validarDato(nombreUsuario == null || nombreUsuario.trim().isEmpty(),
+                    "El nombre de usuario no puede estar vacío.");
+            validarDato(contrasenia == null || contrasenia.trim().isEmpty(),
+                    "La contraseña no puede estar vacía.");
+            validarDato(rolTexto == null || rolTexto.trim().isEmpty(),
+                    "Rol inválido. Roles permitidos: ADMINISTRADOR, EMPLEADO, CLIENTE");
 
-        if (usuarioLogueado == null && rolUsuario != RolUsuario.CLIENTE) {
-            return "Sin iniciar sesión solo puede registrarse como CLIENTE.";
-        }
-
-        if (rolUsuario == RolUsuario.ADMINISTRADOR
-                && (usuarioLogueado == null || usuarioLogueado.getRol() != RolUsuario.ADMINISTRADOR)) {
-            throw new UsuarioNoAutorizadoException("Solo un ADMINISTRADOR puede crear otro ADMINISTRADOR.");
-        }
-
-        String errorDatosPersona = validarDatosPersona(nombre, apellido, dni, telefono, email);
-        if (errorDatosPersona != null) {
-            return errorDatosPersona;
-        }
-
-        if (rolUsuario != RolUsuario.CLIENTE) {
-            if (legajo == null || legajo.trim().isEmpty()) {
-                return "El legajo no puede estar vacío.";
+            RolUsuario rolUsuario;
+            try {
+                rolUsuario = RolUsuario.valueOf(rolTexto.toUpperCase().trim());
+            } catch (Exception excepcion) {
+                throw new DatoInvalidoException("Rol inválido. Roles permitidos: ADMINISTRADOR, EMPLEADO, CLIENTE");
             }
-            if (sucursal == null || sucursal.trim().isEmpty()) {
-                return "La sucursal no puede estar vacía.";
-            }
-        }
 
-        try {
+            validarDato(usuarioLogueado == null && rolUsuario != RolUsuario.CLIENTE,
+                    "Sin iniciar sesión solo puede registrarse como CLIENTE.");
+            if (rolUsuario == RolUsuario.ADMINISTRADOR
+                    && (usuarioLogueado == null || usuarioLogueado.getRol() != RolUsuario.ADMINISTRADOR)) {
+                throw new UsuarioNoAutorizadoException("Solo un ADMINISTRADOR puede crear otro ADMINISTRADOR.");
+            }
+
+            validarDatosPersona(nombre, apellido, dni, telefono, email);
+            if (rolUsuario != RolUsuario.CLIENTE) {
+                validarDato(legajo == null || legajo.trim().isEmpty(), "El legajo no puede estar vacío.");
+                validarDato(sucursal == null || sucursal.trim().isEmpty(), "La sucursal no puede estar vacía.");
+            }
+
             String username = nombreUsuario.trim();
             for (Usuario usuarioExistente : repoUsuarios.listar()) {
                 if (usuarioExistente != null && username.equals(usuarioExistente.getUsername())) {
-                    return "Ya existe un usuario con ese nombre de usuario.";
+                    throw new DatoInvalidoException("Ya existe un usuario con ese nombre de usuario.");
                 }
             }
 
@@ -1278,7 +1234,7 @@ public class SistemaAlquiler {
                 for (Cliente clienteExistente : repoClientes.listar()) {
                     if (clienteExistente != null && clienteExistente.getDni() != null
                             && clienteExistente.getDni().equalsIgnoreCase(dniCliente)) {
-                        return "Ya existe un cliente con ese DNI.";
+                        throw new DatoInvalidoException("Ya existe un cliente con ese DNI.");
                     }
                 }
                 Cliente cliente = new Cliente(idUsuario, nombre.trim(), apellido.trim(), dniCliente,
@@ -1295,41 +1251,32 @@ public class SistemaAlquiler {
             Empleado empleado = new Empleado(idUsuario, nombre.trim(), apellido.trim(), dni.trim(),
                     telefono != null ? telefono.trim() : "", email.trim(), legajo.trim(), sucursal.trim());
             Usuario nuevoUsuario = new Usuario(idUsuario, username, contrasenia, rolUsuario, true, empleado);
-
             repoEmpleados.guardar(empleado.getId(), empleado);
             repoUsuarios.guardar(nuevoUsuario.getIdUsuario(), nuevoUsuario);
             gestorBaseDatos.guardarEmpleado(empleado);
             gestorBaseDatos.guardarUsuario(nuevoUsuario);
-
             return "Usuario '" + nuevoUsuario.getUsername() + "' creado correctamente con rol " + rolUsuario +
                     " | Empleado: " + empleado.getNombreCompleto() + " (legajo " + empleado.getLegajo() + ").";
-        } catch (UsuarioNoAutorizadoException excepcion) {
-            throw excepcion;
+        } catch (DatoInvalidoException e) {
+            return e.getMessage();
+        } catch (UsuarioNoAutorizadoException e) {
+            throw e;
         } catch (Exception e) {
             return "Error al crear usuario: " + e.getMessage();
         }
     }
-
-    private String validarDatosPersona(String nombre, String apellido, String dni, String telefono, String email) {
-        if (nombre == null || nombre.trim().isEmpty()) {
-            return "El nombre no puede estar vacío.";
-        }
-        if (apellido == null || apellido.trim().isEmpty()) {
-            return "El apellido no puede estar vacío.";
-        }
-        if (dni == null || dni.trim().isEmpty()) {
-            return "El DNI no puede estar vacío.";
-        }
-        if (email == null || email.trim().isEmpty()) {
-            return "El email no puede estar vacío.";
-        }
+    private void validarDatosPersona(String nombre, String apellido, String dni, String telefono, String email) {
+        validarDato(nombre == null || nombre.trim().isEmpty(), "El nombre no puede estar vacío.");
+        validarDato(apellido == null || apellido.trim().isEmpty(), "El apellido no puede estar vacío.");
+        validarDato(dni == null || dni.trim().isEmpty(), "El DNI no puede estar vacío.");
+        String dniTrim = dni.trim();
+        validarDato(dniTrim.length() < 7 || dniTrim.length() > 8,
+                "El DNI debe tener entre 7 y 8 caracteres.");
+        validarDato(email == null || email.trim().isEmpty(), "El email no puede estar vacío.");
         String emailTrim = email.trim();
-        if (!emailTrim.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
-            return "Email inválido. Formato esperado: usuario@dominio.com";
-        }
-        return null;
+        validarDato(!emailTrim.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"),
+                "Email inválido. Formato esperado: usuario@dominio.com");
     }
-
     public boolean hayOcupacionesActivas() {
         for (Ocupacion ocupacion : repoOcupaciones.listar()) {
             if (ocupacion != null && ocupacion.estaActiva()

@@ -77,8 +77,7 @@ public class GestorBaseDatos {
                     "fecha_fin TEXT," +
                     "fecha_reserva TEXT," +
                     "estado TEXT," +
-                    "creado_por TEXT," +
-                    "activo INTEGER DEFAULT 1" +
+                    "creado_por TEXT" +
                     ")";
             stmt.execute(sqlReserva);
             String sqlOcupacion = "CREATE TABLE IF NOT EXISTS ocupacion (" +
@@ -123,9 +122,9 @@ public class GestorBaseDatos {
             agregarColumnaSiFalta(conexion, "devolucion", "observaciones", "TEXT");
             agregarColumnaSiFalta(conexion, "cliente", "activo", "INTEGER DEFAULT 1");
             agregarColumnaSiFalta(conexion, "vehiculo", "activo", "INTEGER DEFAULT 1");
-            agregarColumnaSiFalta(conexion, "reserva", "activo", "INTEGER DEFAULT 1");
             agregarColumnaSiFalta(conexion, "usuario", "activo", "INTEGER DEFAULT 1");
             inicializarActivos(conexion);
+            eliminarColumnaLegacyReserva(conexion);
             migrarCreadoPorAUsername(conexion);
             eliminarColumnaSiExiste(conexion, "reserva", "monto_senia");
             eliminarColumnaSiExiste(conexion, "empleado", "fecha_contratacion");
@@ -170,10 +169,21 @@ public class GestorBaseDatos {
         try (java.sql.Statement stmt = conexion.createStatement()) {
             stmt.executeUpdate("UPDATE cliente SET activo = 1 WHERE activo IS NULL");
             stmt.executeUpdate("UPDATE vehiculo SET activo = 1 WHERE activo IS NULL");
-            stmt.executeUpdate("UPDATE reserva SET activo = 1 WHERE activo IS NULL");
             stmt.executeUpdate("UPDATE usuario SET activo = 1 WHERE activo IS NULL");
         } catch (SQLException excepcion) {
             System.err.println("No se pudo inicializar el estado activo: " + excepcion.getMessage());
+        }
+    }
+
+    private void eliminarColumnaLegacyReserva(Connection conexion) {
+        if (!existeColumna(conexion, "reserva", "activo")) {
+            return;
+        }
+        try (java.sql.Statement stmt = conexion.createStatement()) {
+            stmt.executeUpdate("UPDATE reserva SET estado = 'CANCELADA' WHERE activo = 0");
+            stmt.executeUpdate("ALTER TABLE reserva DROP COLUMN activo");
+        } catch (SQLException excepcion) {
+            System.err.println("No se pudo eliminar la columna legacy de reserva: " + excepcion.getMessage());
         }
     }
 
@@ -247,7 +257,7 @@ public class GestorBaseDatos {
     }
 
     public void guardarReserva(Reserva reserva) {
-        String sql = "INSERT OR IGNORE INTO reserva (id_reserva, id_cliente, patente, fecha_inicio, fecha_fin, fecha_reserva, estado, creado_por, activo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        String sql = "INSERT OR IGNORE INTO reserva (id_reserva, id_cliente, patente, fecha_inicio, fecha_fin, fecha_reserva, estado, creado_por) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
         try (Connection conexion = ConnectionFactory.getConnection();
              PreparedStatement sentencia = conexion.prepareStatement(sql)) {
             if (reserva.getCliente() == null || reserva.getVehiculo() == null) {
@@ -261,7 +271,6 @@ public class GestorBaseDatos {
             sentencia.setString(6, reserva.getFechaReserva() != null ? reserva.getFechaReserva().toString() : java.time.LocalDateTime.now().toString());
             sentencia.setString(7, reserva.getEstado() != null ? reserva.getEstado().name() : null);
             sentencia.setString(8, reserva.getCreadoPor());
-            sentencia.setBoolean(9, reserva.isActivo());
             sentencia.executeUpdate();
         } catch (SQLException excepcion) {
             System.err.println("Error al guardar reserva en BD: " + excepcion.getMessage());
@@ -287,10 +296,6 @@ public class GestorBaseDatos {
 
     public void actualizarActivoVehiculo(String patente, boolean activo) {
         actualizarActivo("vehiculo", "patente", patente, activo);
-    }
-
-    public void actualizarActivoReserva(String idReserva, boolean activo) {
-        actualizarActivo("reserva", "id_reserva", idReserva, activo);
     }
 
     public void actualizarActivoUsuario(String idUsuario, boolean activo) {
@@ -720,7 +725,6 @@ public class GestorBaseDatos {
                         estado,
                         creadoPor != null ? creadoPor : ""
                 );
-                reserva.setActivo(resultado.getInt("activo") != 0);
                 lista.add(reserva);
             }
         } catch (SQLException excepcion) {
