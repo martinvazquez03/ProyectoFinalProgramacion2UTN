@@ -131,3 +131,61 @@ Al concretar una entrega, la reserva asociada ahora se elimina de la tabla reser
 Agregue columnas y migracion automatica para ocupacion.fecha_reserva/ocupacion.fecha_inicio_reserva, ajuste guardarOcupacion/cargarOcupaciones y evite que el historial muestre dos veces una reserva que ya esta representada por una ocupacion.
 El historial ahora muestra bloques legibles con RESERVA (fecha de realizacion y periodo), ENTREGA y DEVOLUCION usando dd/MM/yyyy y dd/MM/yyyy HH:mm. Tambien actualice README y DIAGRAMA_UML.
 Verificacion sobre copias de la BD y una BD nueva: 28 roles, 38 migracion/persistencia, 32 cancelacion y 54 invariantes (27 con BD nueva y 27 con BD legacy). Se comprobo que la reserva no reaparece tras reiniciar, que las fechas de reserva siguen en la ocupacion y que el historial no duplica la entrega. Total: 152 comprobaciones OK. La BD real no se modifico.
+
+[19/11/2026] - Creado por unificado con username
+Reserva ya guardaba el username del usuario logueado en creado_por. Ocupacion guardaba el legajo del empleado; ahora ServicioAlquilerImpl busca el usuario por el id del empleado y guarda su username, por lo que la entrega queda auditada con el mismo criterio.
+Agregue una migracion idempotente al iniciar que convierte creado_por legacy (id de usuario o legajo de empleado) al username correspondiente en reserva y ocupacion, sin tocar valores que no se puedan asociar.
+Verificado sobre una copia de la BD: la reserva y la ocupacion nuevas guardan username, y los valores legacy forzados se convierten correctamente; 43 comprobaciones de migracion/persistencia OK.
+
+[19/11/2026] - Observaciones de entrega en el historial
+El historial de clientes ahora incluye la linea OBSERVACIONES con el texto cargado desde Entrega.observaciones; si esta vacio muestra "sin observaciones". De esta forma queda registrado en el historial que ocurrio con la reserva al momento de la entrega.
+Las observaciones ya se guardaban y cargaban desde la tabla entrega, por lo que no hizo falta cambiar el esquema. Actualice README y DIAGRAMA_UML.
+Verificacion sobre una BD nueva y una copia legacy: 29 comprobaciones de invariantes en cada una, incluyendo que las observaciones se muestran despues de la entrega y siguen presentes al reiniciar. Total: 58 comprobaciones OK.
+
+[19/11/2026] - Eliminacion de fecha de contratacion de empleado
+Se elimino Empleado.fechaContratacion junto con su constructor, getter/setter, columna fecha_contratacion del esquema, insercion y mapeo desde la BD. crearTablas elimina la columna existente en bases previas, por lo que la limpieza tambien aplica a la BD actual. Se actualizaron README y DIAGRAMA_UML.
+Verificado con compilacion completa y pruebas de persistencia/invariantes sobre BD nueva y copia legacy.
+
+[19/11/2026] - Fecha de entrega segun inicio de reserva
+La entrega y la ocupacion ya no toman LocalDateTime.now(): ambas usan reserva.fechaInicio.atStartOfDay(), es decir, la fecha asignada por el usuario al reservar. Asi el historial y calcularDias parten de la fecha real de la reserva.
+Verificado sobre BD nueva y copia legacy, incluyendo que fechaHoraEntrega y Ocupacion.fechaInicio coinciden con la fecha de inicio de la reserva y persisten tras recargar.
+
+[19/11/2026] - Eliminacion del estado RESERVADO
+Se elimino EstadoVehiculo.RESERVADO porque la disponibilidad para reservar ya se valida con el solapamiento de fechas. Crear una reserva ya no necesita cambiar el estado del vehiculo y este permanece DISPONIBLE hasta la entrega.
+En crearTablas se migran los vehiculos legacy con estado RESERVADO a DISPONIBLE. Se actualizaron las validaciones de alta y modificacion de vehiculos, el listado de no disponibles, Main, README y DIAGRAMA_UML.
+Verificado que reservar no altera el estado, que las reservas solapadas siguen rechazandose y que la migracion legacy deja todos los vehiculos en estados validos.
+
+[19/11/2026] - esCliente y reservarComoCliente movidos a la envolvente
+Pase esCliente() y reservarComoCliente(...) de Main a SistemaAlquiler. Main conserva solo la impresion, la lectura por consola y el manejo de errores; la validacion de rol, la ficha de cliente, las fechas y la creacion de la reserva quedan en la capa envolvente.
+Corregi el flujo de cliente para listar los disponibles con listarDisponibles(), validar fechas nulas y reutilizar la validacion de solapamiento existente. crearReservaCliente() se mantiene como alias compatible.
+Verificado con 12 comprobaciones: deteccion de rol, rechazo sin sesion CLIENTE, validacion de fechas, creacion de reserva, estado DISPONIBLE y rechazo de solapamientos.
+
+[19/11/2026] - Repositorios genericos como fuente unica en memoria
+Reemplace las listas locales de clientes, reservas y empleados por repositorios genericos para clientes, vehiculos, reservas, empleados, ocupaciones y usuarios. La carga inicial desde SQLite llena esos repositorios; las funciones de consulta, reserva, entrega, devolucion, historial y administracion leen desde ellos en lugar de volver a consultar la BD.
+Cambie la cache de RepositorioGenerico de HashMap a LinkedHashMap para conservar el orden de carga y de alta. Esto corrige el orden de verFlotaCompleta() y de listarTodosVehiculos(), y agrega limpiar() y tamanio().
+Todas las altas y modificaciones actualizan primero el repositorio correspondiente y luego se persisten con GestorBaseDatos: agregarAutomovil, crearCliente, crearReserva, crearUsuario, entrega y devolucion. ServicioAlquilerImpl comparte repoOcupaciones y repoUsuarios con SistemaAlquiler, por lo que ya no consulta la BD para obtener el username del empleado. crearReservaParaCliente valida solapamientos y ocupaciones activas contra los repositorios, y el historial se reconstruye desde repoOcupaciones tras cada carga o recarga.
+Verificacion: 46 comprobaciones de migracion/persistencia, 36 de invariantes en BD nueva y 36 en copia legacy, 28 de roles, 13 de envolvente y 20 especificas de repositorios/orden, todas OK. La BD real no se modifico durante las pruebas.
+
+[19/11/2026] - Cargos extra de devolucion derivados de la tarifa de seguro
+Elimine el ingreso de cargos extra por teclado en la opcion 14. SistemaAlquiler calcula el cargo extra con Vehiculo.tarifaSeguro de la ocupacion devuelta y lo envia a ServicioAlquilerImpl; la multa automatica por daños se sigue sumando cuando corresponde.
+Mantengo una sobrecarga compatible de realizarDevolucionPorIndice que ya no usa el valor recibido, para no romper llamadas existentes. La devolucion muestra el cargo extra aplicado y el monto final.
+Actualice README y DIAGRAMA_UML. Verificado con compilacion completa y las suites de migracion, invariantes, roles, envolvente y repositorios, todas OK.
+
+[19/11/2026] - Entrega limitada a reservas pendientes
+El listado de la opcion 13 ahora usa un contenedor auxiliar con las reservas de repoReservas cuyo estado es PENDIENTE. Tanto getReservaInfo() como realizarEntregaPorIndice() trabajan sobre esa misma lista filtrada, por lo que los indices quedan alineados y las reservas CONCRETADAS o CANCELADAS ya no aparecen para entregar.
+Actualice el encabezado y el mensaje de la opcion 13 en Main, README y DIAGRAMA_UML. Verificado con compilacion completa y pruebas sobre copias de la BD.
+
+[19/11/2026] - Observaciones movidas de entrega a devolucion
+La opcion 13 ya no pide observaciones: solo selecciona la reserva pendiente y realiza la entrega. La opcion 14 ahora pide danios y observaciones, y las guarda en Devolucion.observaciones.
+Agregue el campo observaciones a Devolucion con constructor compatible, lo incluí en el esquema y en guardarDevolucion/leerDevolucion, y agregue la migracion devolucion.observaciones para bases previas. El historial muestra las observaciones de la devolucion despues de DEVOLUCION; si una devolucion legacy no tiene observaciones, conserva como respaldo las de Entrega.
+Actualice Main, README y DIAGRAMA_UML. Verificado con compilacion completa, migracion/persistencia, invariantes en BD nueva y legacy, roles, envolvente, repositorios, cargos extra y observaciones, todas OK.
+
+[19/11/2026] - Menu dinamico por sesion y rol
+Rediseñe el menu de Main: sin sesion solo muestra iniciar sesion, crear usuario CLIENTE y salir. Una vez logueado muestra unicamente las opciones habilitadas para ADMINISTRADOR, EMPLEADO o CLIENTE, y valida el codigo ingresado contra ese conjunto.
+ADMIN ve todas las opciones; EMPLEADO no ve usuarios ni limpieza de BD y, dentro de eliminaciones, no ve la opcion de eliminar usuario; CLIENTE solo ve disponibles y gestionar su propia reserva. Tambien limite la creacion de usuarios: ADMIN puede crear cualquier rol, EMPLEADO solo EMPLEADO/CLIENTE y el invitado solo CLIENTE.
+Extraje el alta de usuario a un metodo comun para reutilizarlo desde el menu invitado y el logueado. Actualice README y DIAGRAMA_UML. Verificado con prueba de menu por rol (17 comprobaciones) y compilacion completa.
+
+[19/11/2026] - Menu agrupado por entidad con subswitch
+Reorganice el menu logueado en categorias: Clientes, Automoviles, Reservas, Entregas, Devoluciones y Usuarios/Sistema. Cada categoria tiene su propio submenu con las acciones correspondientes y una opcion 0 para volver; las consultas, altas, modificaciones y eliminaciones quedaron dentro de la categoria de la entidad que manejan.
+El menu de invitado sigue mostrando solo iniciar sesion, crear usuario CLIENTE y salir. Las categorias y subopciones se filtran por rol: CLIENTE solo ve Automoviles y Reservas; EMPLEADO no accede a limpieza de BD ni a eliminacion de usuarios; ADMIN ve todo. Extraje los flujos de crear cliente, agregar/modificar/eliminar automovil, crear/cancelar/eliminar reserva, entrega, devolucion y usuarios a metodos independientes.
+Actualice README y DIAGRAMA_UML. Verificado con prueba de menu agrupado (17 comprobaciones), compilacion completa y las suites funcionales existentes.

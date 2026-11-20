@@ -38,20 +38,21 @@ ServicioAlquilerImpl -->|implements|--> ServicioAlquiler
 4. ENUMERACIONES
 ----------------
 RolUsuario        = { ADMINISTRADOR, EMPLEADO, CLIENTE }
-EstadoVehiculo    = { DISPONIBLE, ALQUILADO, RESERVADO, EN_LIMPIEZA, EN_REPARACION, FUERA_SERVICIO }
+EstadoVehiculo    = { DISPONIBLE, ALQUILADO, EN_LIMPIEZA, EN_REPARACION, FUERA_SERVICIO }
 EstadoReserva     = { PENDIENTE, CONFIRMADA, CANCELADA, CONCRETADA }
 EstadoOcupacion   = { ACTIVA, FINALIZADA, CANCELADA }
 
-Nota: los tres roles inician sesion. CLIENTE solo puede ver automoviles disponibles y crear
-reservas; sus reservas heredan automaticamente su ficha de Cliente (no elige cliente).
-Sin sesion iniciada, la opcion 8 solo permite autorregistrarse como CLIENTE.
+Nota: los tres roles inician sesion. CLIENTE solo puede ver automoviles disponibles y gestionar
+sus propias reservas; sus reservas heredan automaticamente su ficha de Cliente (no elige cliente).
+Sin sesion iniciada, el menu solo muestra iniciar sesion, crear usuario CLIENTE y salir. Con sesion,
+Main muestra unicamente las opciones permitidas por el rol.
 
 5. ATRIBUTOS Y METODOS CLAVE
 ----------------------------
 CLIENTE (-fechaRegistro:LocalDate, -historialOcupaciones:ArrayList<Ocupacion>)
         +agregarOcupacion(Ocupacion): void | +getHistorialOcupaciones(): ArrayList<Ocupacion> | +getIdentificacion(): String
 
-EMPLEADO (-legajo:String, -fechaContratacion:LocalDate, -sucursal:String)
+EMPLEADO (-legajo:String, -sucursal:String)
          +getIdentificacion(): String
 
 USUARIO (-idUsuario:String, -username:String, -passwordHash:String, -rol:RolUsuario,
@@ -62,14 +63,16 @@ USUARIO (-idUsuario:String, -username:String, -passwordHash:String, -rol:RolUsua
 AUTOMOVIL (-cantidadPuertas:int, -transmision:String) -> calcularCosto() sobreescrito
 
 RESERVA (-idReserva:String, -cliente:Cliente, -vehiculo:Vehiculo, -fechaInicio:LocalDate,
-         -fechaFin:LocalDate, -fechaReserva:LocalDateTime, -estado:EstadoReserva, -creadoPor:String)
+         -fechaFin:LocalDate, -fechaReserva:LocalDateTime, -estado:EstadoReserva,
+         -creadoPor:String (username del usuario))
         +validar(): boolean | +confirmar(): void | +cancelar(): void
         +calcularMontoTotal(): double | +getMontoSenia(): double (derivado de tarifaSeguro)
 
 OCUPACION (-idOcupacion:String, -cliente:Cliente, -vehiculo:Vehiculo, -reserva:Reserva,
            -entrega:Entrega, -devolucion:Devolucion, -fechaInicio:LocalDateTime,
            -fechaFinEstimada:LocalDateTime, -fechaReserva:LocalDateTime,
-           -fechaInicioReserva:LocalDate, -estado:EstadoOcupacion, -creadoPor:String)
+           -fechaInicioReserva:LocalDate, -estado:EstadoOcupacion,
+           -creadoPor:String (username del empleado que entrega))
           +estaActiva(): boolean | +calcularDias(): long | +cerrar(Devolucion): void
           +getFechaCreacion(): LocalDateTime (derivada de fechaInicio)
           +getFechaReserva(): LocalDateTime | +getFechaInicioReserva(): LocalDate
@@ -80,7 +83,7 @@ ENTREGA   (-idEntrega:String, -ocupacion:Ocupacion, -empleado:Empleado, -fechaHo
           +generarComprobante(): String | +validarDatos(): void
 
 DEVOLUCION (-idDevolucion:String, -ocupacion:Ocupacion, -empleado:Empleado, -fechaHoraDevolucion:LocalDateTime,
-            -danios:String, -cargosExtra:double, -montoFinal:double)
+            -danios:String, -observaciones:String, -cargosExtra:double, -montoFinal:double)
            +tieneDanios(): boolean | +aplicarMultas(): void | +calcularCargos(): double | +cerrarOcupacion(): void
 
 6. CAPA DE ACCESO A DATOS
@@ -98,6 +101,7 @@ ConnectionFactory: +getConnection(): Connection | +cerrar(AutoCloseable): void
 <<interface>> ServicioAlquiler
   +realizarEntrega(Reserva, Empleado, String): Ocupacion
   +realizarDevolucion(Ocupacion, Empleado, int, String, double): Devolucion
+  (el cargo extra se calcula desde Vehiculo.tarifaSeguro; no se pide por teclado)
   +listarAlquiladosActualmente(): List<Ocupacion>
   +listarOcupaciones(): List<Ocupacion>
   +cargarOcupaciones(List<Ocupacion>): void
@@ -105,25 +109,27 @@ ConnectionFactory: +getConnection(): Connection | +cerrar(AutoCloseable): void
 ServicioAlquilerImpl ..|> ServicioAlquiler
 
 SistemaAlquiler (CLASE ENVOLVENTE - Encapsulamiento)
-  Atributos: servicioAlquiler, gestorBaseDatos, clientes(ArrayList),
-             reservas(ArrayList), empleados(ArrayList), repoVehiculos(RepositorioGenerico)
+  Atributos: servicioAlquiler, gestorBaseDatos, repoClientes(RepositorioGenerico),
+             repoVehiculos, repoReservas, repoEmpleados, repoOcupaciones, repoUsuarios
   Metodos (retornan String): login(), crearUsuario(...), crearCliente(), agregarAutomovil(..., int, String),
              listarDisponibles(), listarNoDisponibles(), listarAlquilados(), listarTodosVehiculos(), getVehiculoInfo(),
-             getReservaInfo(), crearReserva(), crearReservaCliente(), realizarEntregaPorIndice(), realizarDevolucionPorIndice(),
+             getReservaInfo(), esCliente(), crearReserva(), reservarComoCliente(), crearReservaCliente(),
+             realizarEntregaPorIndice(), realizarDevolucionPorIndice(),
              verHistorialCliente(), listarClientes(), listarReservas(), listarUsuarios(), administrarUsuarios(),
-             verFlotaPolimorfismo(), limpiarDatosBD(), modificarEstadoVehiculo(), eliminarCliente(),
+             verFlotaCompleta(), limpiarDatosBD(), modificarEstadoVehiculo(), eliminarCliente(),
              eliminarVehiculo(), eliminarReserva(), eliminarUsuario(), eliminarUsuarioPorIndice()
   Inicializacion: crea tablas + migra columnas, crea mariano/1234 con Empleado, carga clientes, vehiculos,
-                  empleados, reservas y ocupaciones (con entrega/devolucion).
+                  empleados, reservas, ocupaciones y usuarios en repositorios genericos.
 
 8. GENERICOS Y COLECCIONES
 --------------------------
 RepositorioGenerico<T, ID>
-  -cache: HashMap<ID, T>
+  -cache: LinkedHashMap<ID, T>
   +<R> mapear(Function<T, R>): List<R>  (METODO GENERICO)
   +guardar(ID, T): void | +buscar(ID): Optional<T> | +listar(): List<T> | +existe(ID): boolean | +eliminar(ID): void
+  +limpiar(): void | +tamanio(): int
 
-Colecciones utilizadas: ArrayList<T>, HashMap<K,V>
+Colecciones utilizadas: ArrayList<T>, LinkedHashMap<K,V> (mantiene orden de carga/alta)
 
 9. EXCEPCIONES PERSONALIZADAS
 ----------------------------
@@ -152,24 +158,31 @@ Reserva/Ocupacion implement Auditable
 -------------------------------
 Motor: SQLite (alquiler_vehiculos.db)
 Tablas: usuario, vehiculo, cliente, empleado, reserva, ocupacion, entrega, devolucion
-GestorBaseDatos maneja todo el SQL. SistemaAlquiler delega operaciones BD a GestorBaseDatos.
+GestorBaseDatos maneja todo el SQL. SistemaAlquiler carga la BD en repositorios genericos y lee desde ellos;
+las altas y modificaciones se aplican primero al repositorio y luego se persisten con GestorBaseDatos.
 Migraciones: agregarColumnaSiFalta para reserva.creado_por, ocupacion.id_reserva,
-ocupacion.creado_por, ocupacion.fecha_reserva y ocupacion.fecha_inicio_reserva.
+ocupacion.creado_por, ocupacion.fecha_reserva, ocupacion.fecha_inicio_reserva y devolucion.observaciones.
 Tambien se elimina la columna legacy reserva.monto_senia si existe.
-Al entregar se borra la reserva de la tabla reserva y del contenedor; la ocupacion
+Al entregar se borra la reserva de la tabla reserva y de repoReservas; la ocupacion
 conserva fecha_reserva/fecha_inicio_reserva y fechaFinReserva se deriva de fechaFinEstimada.
+reserva.creado_por y ocupacion.creado_por guardan usernames; la migracion inicial
+convierte ids de usuario o legajos legacy al username correspondiente.
 
 12. FLUJO FUNCIONAL
 -------------------
-1. Main crea SistemaAlquiler (inicializa BD, migra columnas, crea mariano/1234 con Empleado, carga datos)
-2. Usuario inicia sesion (ADMIN/EMPLEADO o CLIENTE; consulta BD y adjunta su Empleado o Cliente)
+1. Main crea SistemaAlquiler (inicializa BD, migra columnas, crea mariano/1234 con Empleado, carga datos en repositorios)
+   Menu: sin sesion solo iniciar sesion, crear usuario CLIENTE y salir. Con sesion agrupa en Clientes,
+   Automoviles, Reservas, Entregas, Devoluciones y Usuarios/Sistema; cada categoria tiene su subswitch y solo se muestran las permitidas por rol
+2. Usuario inicia sesion (ADMIN/EMPLEADO o CLIENTE; consulta repoUsuarios y adjunta su Empleado o Cliente desde repositorios)
 3. Usuarios: sin sesion solo se autorregistra CLIENTE; con sesion ADMIN/EMPLEADO crean Empleado+Usuario o Cliente+Usuario; solo ADMIN crea ADMIN
 4. ADMIN/EMPLEADO agregan automoviles con validaciones y datos reales de puertas/transmision
-5. Listados leen desde BD, cargan contenedores genericos y se muestran
+5. Listados leen desde repositorios genericos y conservan el orden de carga/alta
 6. Clientes se crean con el constructor de Cliente (Persona)
 7. Reservas/Entregas/Devoluciones se persisten con el usuario/empleado real; la reserva de un CLIENTE usa su ficha
-7b. Opcion 12: submenu crear/cancelar. Cancelar pasa la reserva a CANCELADA y persiste; CLIENTE solo cancela las propias, ADMIN/EMPLEADO cualquiera
-7c. La entrega guarda la instantanea de fechas de la reserva en la ocupacion y elimina la reserva de la BD y del contenedor
-8. Opcion 15 elimina clientes/vehiculos/reservas/usuarios (bloquea ocupaciones activas y borra en cascada las finalizadas)
-9. Opcion 16 limpia BD manteniendo solo mariano (y restaura su legajo)
-10. Polimorfismo con ArrayList<Vehiculo>, genericos con RepositorioGenerico
+7b. En Reservas, el submenu permite crear/cancelar (y listar/eliminar para ADMIN/EMPLEADO). Cancelar pasa la reserva a CANCELADA y persiste; CLIENTE solo cancela las propias, ADMIN/EMPLEADO cualquiera
+7c. La entrega lista solo reservas PENDIENTES, usa reserva.fechaInicio como fecha de entrega e inicio de la ocupacion; guarda la instantanea de fechas y elimina la reserva de la BD y de repoReservas
+7d. El historial muestra RESERVA, ENTREGA, DEVOLUCION y OBSERVACIONES cargadas al devolver el vehiculo; la entrega ya no pide observaciones
+7e. La devolucion toma los cargos extra de Vehiculo.tarifaSeguro, sin pedirlos por teclado; la multa por daños se sigue aplicando automaticamente
+8. En Clientes/Automoviles/Reservas se eliminan los registros correspondientes; en Usuarios y sistema el submenu de usuario solo aparece para ADMIN (bloquea ocupaciones activas y borra en cascada las finalizadas)
+9. Usuarios y sistema > Limpiar BD mantiene solo mariano (y restaura su legajo); solo ADMIN
+10. Polimorfismo con ArrayList<Vehiculo>, genericos con RepositorioGenerico para todas las entidades

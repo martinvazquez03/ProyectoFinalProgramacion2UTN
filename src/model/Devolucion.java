@@ -11,17 +11,24 @@ public class Devolucion {
     private LocalDateTime fechaHoraDevolucion;
     private int kilometrajeEntrada;
     private String danios;
+    private String observaciones;
     private double cargosExtra;
     private double montoFinal;
 
     public Devolucion(String idDevolucion, Ocupacion ocupacion, Empleado empleado, LocalDateTime fechaHoraDevolucion,
                       int kilometrajeEntrada, String danios, double cargosExtra) {
+        this(idDevolucion, ocupacion, empleado, fechaHoraDevolucion, kilometrajeEntrada, danios, cargosExtra, "");
+    }
+
+    public Devolucion(String idDevolucion, Ocupacion ocupacion, Empleado empleado, LocalDateTime fechaHoraDevolucion,
+                      int kilometrajeEntrada, String danios, double cargosExtra, String observaciones) {
         this.idDevolucion = idDevolucion;
         this.ocupacion = ocupacion;
         this.empleado = empleado;
         this.fechaHoraDevolucion = fechaHoraDevolucion;
         this.kilometrajeEntrada = kilometrajeEntrada;
         this.danios = danios;
+        this.observaciones = observaciones;
         this.cargosExtra = cargosExtra;
     }
 
@@ -56,6 +63,8 @@ public class Devolucion {
     public LocalDateTime getFechaHoraDevolucion() { return fechaHoraDevolucion; }
     public int getKilometrajeEntrada() { return kilometrajeEntrada; }
     public String getDanios() { return danios; }
+    public String getObservaciones() { return observaciones; }
+    public void setObservaciones(String observaciones) { this.observaciones = observaciones; }
     public double getCargosExtra() { return cargosExtra; }
     public void setCargosExtra(double cargosExtra) { this.cargosExtra = cargosExtra; }
     public double getMontoFinal() { return montoFinal; }

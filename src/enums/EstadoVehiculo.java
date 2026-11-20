@@ -3,7 +3,6 @@ package enums;
 public enum EstadoVehiculo {
     DISPONIBLE,
     ALQUILADO,
-    RESERVADO,
     EN_LIMPIEZA,
     EN_REPARACION,
     FUERA_SERVICIO

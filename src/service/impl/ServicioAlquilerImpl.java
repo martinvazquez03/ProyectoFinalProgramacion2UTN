@@ -6,6 +6,7 @@ import exception.ReservaInvalidaException;
 import exception.VehiculoNoDisponibleException;
 import model.*;
 import service.ServicioAlquiler;
+import util.RepositorioGenerico;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -13,8 +14,18 @@ import java.util.List;
 import java.util.UUID;
 
 public class ServicioAlquilerImpl implements ServicioAlquiler {
-    private List<Ocupacion> ocupaciones = new ArrayList<Ocupacion>();
-    private final dao.GestorBaseDatos gestorBaseDatos = new dao.GestorBaseDatos();
+    private final RepositorioGenerico<Ocupacion, String> repoOcupaciones;
+    private final RepositorioGenerico<Usuario, String> repoUsuarios;
+
+    public ServicioAlquilerImpl() {
+        this(new RepositorioGenerico<Ocupacion, String>(), new RepositorioGenerico<Usuario, String>());
+    }
+
+    public ServicioAlquilerImpl(RepositorioGenerico<Ocupacion, String> repoOcupaciones,
+                                RepositorioGenerico<Usuario, String> repoUsuarios) {
+        this.repoOcupaciones = repoOcupaciones;
+        this.repoUsuarios = repoUsuarios;
+    }
 
     @Override
     public Ocupacion realizarEntrega(Reserva reserva, Empleado empleado, String observaciones) throws VehiculoNoDisponibleException, ReservaInvalidaException {
@@ -37,7 +48,7 @@ public class ServicioAlquilerImpl implements ServicioAlquiler {
             throw new VehiculoNoDisponibleException(reserva.getVehiculo().getPatente(), reserva.getVehiculo().getEstado().toString());
         }
         if (reserva.getCliente() != null) {
-            for (Ocupacion ocupacionActiva : ocupaciones) {
+            for (Ocupacion ocupacionActiva : repoOcupaciones.listar()) {
                 if (ocupacionActiva.estaActiva() && ocupacionActiva.getCliente() != null
                         && reserva.getCliente().getId().equals(ocupacionActiva.getCliente().getId())) {
                     throw new ReservaInvalidaException("El cliente ya tiene una ocupación activa.");
@@ -45,26 +56,34 @@ public class ServicioAlquilerImpl implements ServicioAlquiler {
             }
         }
 
-        java.util.ArrayList<Ocupacion> contenedorOcupaciones = new java.util.ArrayList<Ocupacion>(this.ocupaciones);
+        LocalDateTime fechaInicioReserva = reserva.getFechaInicio().atStartOfDay();
         Ocupacion ocupacion = new Ocupacion(UUID.randomUUID().toString(), reserva.getCliente(),
-                reserva.getVehiculo(), reserva, LocalDateTime.now(),
-                reserva.getFechaFin().atStartOfDay(), empleado.getLegajo());
-        Entrega entrega = new Entrega(UUID.randomUUID().toString(), ocupacion, empleado, LocalDateTime.now(),
+                reserva.getVehiculo(), reserva, fechaInicioReserva,
+                reserva.getFechaFin().atStartOfDay(), obtenerUsernameEmpleado(empleado));
+        Entrega entrega = new Entrega(UUID.randomUUID().toString(), ocupacion, empleado, fechaInicioReserva,
                 reserva.getVehiculo().getKilometraje(), observaciones != null ? observaciones : "");
         entrega.validarDatos();
         ocupacion.setEntrega(entrega);
         reserva.getVehiculo().setEstado(EstadoVehiculo.ALQUILADO);
-        try {
-            gestorBaseDatos.actualizarVehiculo(reserva.getVehiculo());
-        } catch (Exception ignored) {
-        }
         reserva.setEstado(EstadoReserva.CONCRETADA);
         if (reserva.getCliente() != null) {
             reserva.getCliente().agregarOcupacion(ocupacion);
         }
-        contenedorOcupaciones.add(ocupacion);
-        this.ocupaciones = contenedorOcupaciones;
+        repoOcupaciones.guardar(ocupacion.getIdOcupacion(), ocupacion);
         return ocupacion;
+    }
+
+    private String obtenerUsernameEmpleado(Empleado empleado) {
+        if (empleado == null || empleado.getId() == null) {
+            return "";
+        }
+        for (Usuario usuario : repoUsuarios.listar()) {
+            if (usuario != null && empleado.getId().equals(usuario.getIdUsuario())
+                    && usuario.getUsername() != null) {
+                return usuario.getUsername().trim();
+            }
+        }
+        return "";
     }
 
     @Override
@@ -93,7 +112,7 @@ public class ServicioAlquilerImpl implements ServicioAlquiler {
     @Override
     public List<Ocupacion> listarAlquiladosActualmente() {
         List<Ocupacion> activas = new ArrayList<Ocupacion>();
-        for (Ocupacion o : ocupaciones) {
+        for (Ocupacion o : repoOcupaciones.listar()) {
             if (o.estaActiva()) {
                 activas.add(o);
             }
@@ -103,11 +122,16 @@ public class ServicioAlquilerImpl implements ServicioAlquiler {
 
     @Override
     public List<Ocupacion> listarOcupaciones() {
-        return new ArrayList<Ocupacion>(ocupaciones);
+        return new ArrayList<Ocupacion>(repoOcupaciones.listar());
     }
 
     @Override
     public void cargarOcupaciones(List<Ocupacion> ocupaciones) {
-        this.ocupaciones = ocupaciones != null ? new ArrayList<Ocupacion>(ocupaciones) : new ArrayList<Ocupacion>();
+        repoOcupaciones.limpiar();
+        if (ocupaciones != null) {
+            for (Ocupacion ocupacion : ocupaciones) {
+                repoOcupaciones.guardar(ocupacion.getIdOcupacion(), ocupacion);
+            }
+        }
     }
 }

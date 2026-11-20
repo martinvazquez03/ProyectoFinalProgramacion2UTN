@@ -29,46 +29,74 @@ public class SistemaAlquiler {
     private static final String LEGACY_APELLIDO_PLACEHOLDER = "SISTEMA";
     private static final String LEGACY_DNI_PLACEHOLDER = "00000000";
 
-    private final ServicioAlquiler servicioAlquiler = new ServicioAlquilerImpl();
-    private final ArrayList<Cliente> clientes = new ArrayList<Cliente>();
-    private final ArrayList<Reserva> reservas = new ArrayList<Reserva>();
-    private ArrayList<Empleado> empleados = new ArrayList<Empleado>();
-    private RepositorioGenerico<Vehiculo, String> repoVehiculos = new RepositorioGenerico<Vehiculo, String>();
+    private final ServicioAlquiler servicioAlquiler;
+    private final RepositorioGenerico<Cliente, String> repoClientes = new RepositorioGenerico<Cliente, String>();
+    private final RepositorioGenerico<Vehiculo, String> repoVehiculos = new RepositorioGenerico<Vehiculo, String>();
+    private final RepositorioGenerico<Reserva, String> repoReservas = new RepositorioGenerico<Reserva, String>();
+    private final RepositorioGenerico<Empleado, String> repoEmpleados = new RepositorioGenerico<Empleado, String>();
+    private final RepositorioGenerico<Ocupacion, String> repoOcupaciones = new RepositorioGenerico<Ocupacion, String>();
+    private final RepositorioGenerico<Usuario, String> repoUsuarios = new RepositorioGenerico<Usuario, String>();
     private Usuario usuarioLogueado = null;
     private final GestorBaseDatos gestorBaseDatos = new GestorBaseDatos();
 
     public SistemaAlquiler() {
+        this.servicioAlquiler = new ServicioAlquilerImpl(repoOcupaciones, repoUsuarios);
         inicializarBD();
         crearUsuarioAdministradorPorDefecto();
         cargarDatosDesdeBD();
     }
 
     private void cargarDatosDesdeBD() {
-        java.util.ArrayList<Cliente> clientesBD = gestorBaseDatos.cargarClientes();
-        java.util.ArrayList<Vehiculo> vehiculosBD = gestorBaseDatos.cargarVehiculos();
-        java.util.ArrayList<Empleado> empleadosBD = gestorBaseDatos.cargarEmpleados();
-        java.util.ArrayList<Reserva> reservasBD = gestorBaseDatos.cargarReservas(clientesBD, vehiculosBD);
+        java.util.ArrayList<Cliente> clientesBD = gestorBaseDatos.leerClientes();
+        java.util.ArrayList<Vehiculo> vehiculosBD = gestorBaseDatos.leerVehiculos();
+        java.util.ArrayList<Empleado> empleadosBD = gestorBaseDatos.leerEmpleados();
+        java.util.ArrayList<Reserva> reservasBD = gestorBaseDatos.leerReservas(clientesBD, vehiculosBD);
         java.util.ArrayList<Ocupacion> ocupacionesBD = gestorBaseDatos.cargarOcupaciones(clientesBD, vehiculosBD, empleadosBD, reservasBD);
+        List<Usuario> usuariosBD;
+        try {
+            usuariosBD = gestorBaseDatos.leerUsuarios();
+        } catch (Exception e) {
+            usuariosBD = new ArrayList<Usuario>();
+        }
 
-        clientes.clear();
-        clientes.addAll(clientesBD);
+        repoClientes.limpiar();
+        for (Cliente cliente : clientesBD) {
+            repoClientes.guardar(cliente.getId(), cliente);
+        }
 
+        repoVehiculos.limpiar();
         for (Vehiculo vehiculo : vehiculosBD) {
             repoVehiculos.guardar(vehiculo.getPatente(), vehiculo);
         }
 
-        empleados.clear();
-        empleados.addAll(empleadosBD);
+        repoEmpleados.limpiar();
+        for (Empleado empleado : empleadosBD) {
+            repoEmpleados.guardar(empleado.getId(), empleado);
+        }
 
-        reservas.clear();
-        reservas.addAll(reservasBD);
+        repoReservas.limpiar();
+        for (Reserva reserva : reservasBD) {
+            repoReservas.guardar(reserva.getIdReserva(), reserva);
+        }
 
-        servicioAlquiler.cargarOcupaciones(ocupacionesBD);
-        reconstruirHistorialOcupaciones(ocupacionesBD);
+        repoOcupaciones.limpiar();
+        for (Ocupacion ocupacion : ocupacionesBD) {
+            repoOcupaciones.guardar(ocupacion.getIdOcupacion(), ocupacion);
+        }
+
+        repoUsuarios.limpiar();
+        if (usuariosBD != null) {
+            for (Usuario usuario : usuariosBD) {
+                repoUsuarios.guardar(usuario.getIdUsuario(), usuario);
+            }
+        }
+
+        servicioAlquiler.cargarOcupaciones(new ArrayList<Ocupacion>(repoOcupaciones.listar()));
+        reconstruirHistorialOcupaciones(repoOcupaciones.listar());
     }
 
     private void reconstruirHistorialOcupaciones(List<Ocupacion> ocupaciones) {
-        for (Cliente cliente : clientes) {
+        for (Cliente cliente : repoClientes.listar()) {
             if (cliente != null) {
                 cliente.limpiarHistorialOcupaciones();
             }
@@ -89,17 +117,20 @@ public class SistemaAlquiler {
 
     private void crearUsuarioAdministradorPorDefecto() {
         try {
-            Usuario existente = gestorBaseDatos.cargarUsuarioPorUsername(ADMIN_USERNAME);
+            Usuario existente = gestorBaseDatos.leerUsuarioPorUsername(ADMIN_USERNAME);
             if (existente == null) {
                 String idAdmin = UUID.randomUUID().toString();
                 Empleado admin = construirEmpleadoAdmin(idAdmin);
+                repoEmpleados.guardar(admin.getId(), admin);
                 gestorBaseDatos.guardarEmpleado(admin);
                 Usuario mariano = new Usuario(idAdmin, ADMIN_USERNAME, ADMIN_PASSWORD, RolUsuario.ADMINISTRADOR, true, admin);
+                repoUsuarios.guardar(mariano.getIdUsuario(), mariano);
                 gestorBaseDatos.guardarUsuario(mariano);
             } else {
-                Empleado admin = gestorBaseDatos.cargarEmpleadoPorId(existente.getIdUsuario());
+                Empleado admin = gestorBaseDatos.leerEmpleadoPorId(existente.getIdUsuario());
                 if (admin == null || datosEmpleadoAdminPorDefecto(admin)) {
                     admin = construirEmpleadoAdmin(existente.getIdUsuario());
+                    repoEmpleados.guardar(admin.getId(), admin);
                     gestorBaseDatos.guardarEmpleado(admin);
                 }
             }
@@ -110,7 +141,7 @@ public class SistemaAlquiler {
 
     private Empleado construirEmpleadoAdmin(String id) {
         return new Empleado(id, ADMIN_NOMBRE, ADMIN_APELLIDO, ADMIN_DNI, ADMIN_TELEFONO, ADMIN_EMAIL,
-                ADMIN_LEGAJO, LocalDate.now(), ADMIN_SUCURSAL);
+                ADMIN_LEGAJO, ADMIN_SUCURSAL);
     }
 
     private boolean datosEmpleadoAdminPorDefecto(Empleado empleado) {
@@ -119,7 +150,13 @@ public class SistemaAlquiler {
 
     public String login(String user, String pass) {
         try {
-            Usuario u = gestorBaseDatos.cargarUsuarioPorUsername(user);
+            Usuario u = null;
+            for (Usuario usuario : repoUsuarios.listar()) {
+                if (usuario != null && usuario.getUsername() != null && usuario.getUsername().equals(user)) {
+                    u = usuario;
+                    break;
+                }
+            }
             if (u == null) {
                 return "Usuario no encontrado.";
             }
@@ -134,7 +171,7 @@ public class SistemaAlquiler {
                     }
                     u.setCliente(clienteAsociado);
                 } else {
-                    u.setEmpleado(gestorBaseDatos.cargarEmpleadoPorId(u.getIdUsuario()));
+                    u.setEmpleado(repoEmpleados.buscar(u.getIdUsuario()).orElse(null));
                 }
                 usuarioLogueado = u;
                 return "Login exitoso! Rol: " + u.getRol();
@@ -146,28 +183,18 @@ public class SistemaAlquiler {
     }
 
     private Cliente buscarClientePorId(String idCliente) {
-        if (idCliente == null || clientes == null) {
+        if (idCliente == null) {
             return null;
         }
-        for (Cliente cliente : clientes) {
-            if (cliente != null && idCliente.equals(cliente.getId())) {
-                return cliente;
-            }
-        }
-        return null;
+        return repoClientes.buscar(idCliente).orElse(null);
     }
 
     public String listarDisponibles() {
         StringBuilder sb = new StringBuilder();
         sb.append("\n--- AUTOMOVILES DISPONIBLES ---\n");
         try {
-            List<Vehiculo> vehiculosBD = gestorBaseDatos.cargarVehiculos();
-            if (vehiculosBD == null) {
-                vehiculosBD = new java.util.ArrayList<Vehiculo>();
-            }
-            java.util.ArrayList<Vehiculo> contenedorGenerico = new java.util.ArrayList<Vehiculo>(vehiculosBD);
             boolean hay = false;
-            for (Vehiculo v : contenedorGenerico) {
+            for (Vehiculo v : repoVehiculos.listar()) {
                 if (v != null && v.getEstado() == enums.EstadoVehiculo.DISPONIBLE) {
                     hay = true;
                     sb.append(v.getPatente()).append(" - ").append(v.getMarca()).append(" ").append(v.getModelo())
@@ -186,7 +213,12 @@ public class SistemaAlquiler {
         StringBuilder sb = new StringBuilder();
         sb.append("\n--- OCUPACIONES ACTIVAS ---\n");
         try {
-            ArrayList<Ocupacion> activas = new ArrayList<Ocupacion>(servicioAlquiler.listarAlquiladosActualmente());
+            ArrayList<Ocupacion> activas = new ArrayList<Ocupacion>();
+            for (Ocupacion ocupacion : repoOcupaciones.listar()) {
+                if (ocupacion != null && ocupacion.estaActiva()) {
+                    activas.add(ocupacion);
+                }
+            }
             if (activas.isEmpty()) {
                 sb.append("No hay ocupaciones activas.\n");
                 return sb.toString();
@@ -211,19 +243,13 @@ public class SistemaAlquiler {
         StringBuilder sb = new StringBuilder();
         sb.append("\n--- AUTOMOVILES NO DISPONIBLES (CON MOTIVO) ---\n");
         try {
-            List<Vehiculo> vehiculosBD = gestorBaseDatos.cargarVehiculos();
-            if (vehiculosBD == null) {
-                vehiculosBD = new java.util.ArrayList<Vehiculo>();
-            }
-            java.util.ArrayList<Vehiculo> contenedorGenerico = new java.util.ArrayList<Vehiculo>(vehiculosBD);
             boolean hay = false;
-            for (Vehiculo v : contenedorGenerico) {
+            for (Vehiculo v : repoVehiculos.listar()) {
                 if (v != null && v.getEstado() != enums.EstadoVehiculo.DISPONIBLE) {
                     hay = true;
                     String motivo = v.getEstado() == enums.EstadoVehiculo.ALQUILADO ? "ALQUILADO - En poder del cliente" :
-                            v.getEstado() == enums.EstadoVehiculo.RESERVADO ? "RESERVADO - Pendiente de entrega" :
-                                    v.getEstado() == enums.EstadoVehiculo.EN_LIMPIEZA ? "EN LIMPIEZA - En proceso" :
-                                            v.getEstado() == enums.EstadoVehiculo.EN_REPARACION ? "EN REPARACION - Mantenimiento" : "FUERA DE SERVICIO";
+                            v.getEstado() == enums.EstadoVehiculo.EN_LIMPIEZA ? "EN LIMPIEZA - En proceso" :
+                                    v.getEstado() == enums.EstadoVehiculo.EN_REPARACION ? "EN REPARACION - Mantenimiento" : "FUERA DE SERVICIO";
                     sb.append(v.getPatente()).append(" - ").append(v.getMarca()).append(" ").append(v.getModelo())
                             .append(" | Estado: ").append(v.getEstado()).append(" | Motivo: ").append(motivo)
                             .append(" | $/día: $").append(v.getPrecioDia()).append(" | Km: ").append(v.getKilometraje()).append("\n");
@@ -252,10 +278,7 @@ public class SistemaAlquiler {
 
         Cliente nuevoCliente = new Cliente(UUID.randomUUID().toString(), nombre.trim(), apellido.trim(), dni.trim(),
                 telefono != null ? telefono.trim() : "", email.trim(), java.time.LocalDate.now());
-        java.util.ArrayList<Cliente> contenedorClientes = new java.util.ArrayList<Cliente>(clientes);
-        contenedorClientes.add(nuevoCliente);
-        clientes.clear();
-        clientes.addAll(contenedorClientes);
+        repoClientes.guardar(nuevoCliente.getId(), nuevoCliente);
         gestorBaseDatos.guardarCliente(nuevoCliente);
         return "Cliente " + nuevoCliente.getNombreCompleto() + " creado correctamente.";
     }
@@ -267,27 +290,38 @@ public class SistemaAlquiler {
         if (usuarioLogueado.getRol() == RolUsuario.CLIENTE) {
             return "Los usuarios CLIENTE solo pueden reservar con su propia ficha.";
         }
-        if (clientes.isEmpty()) {
+        if (repoClientes.listar().isEmpty()) {
             return "No hay clientes registrados. Cree un cliente primero.";
         }
-        if (idxCliente < 0 || idxCliente >= clientes.size()) {
+        List<Cliente> clientesActuales = repoClientes.listar();
+        if (idxCliente < 0 || idxCliente >= clientesActuales.size()) {
             return "Índices inválidos.";
         }
-        return crearReservaParaCliente(clientes.get(idxCliente), idxVehiculo, inicio, fin);
+        return crearReservaParaCliente(clientesActuales.get(idxCliente), idxVehiculo, inicio, fin);
     }
 
-    public String crearReservaCliente(int idxVehiculo, LocalDate inicio, LocalDate fin) {
+    public boolean esCliente() {
+        return usuarioLogueado != null && usuarioLogueado.getRol() == RolUsuario.CLIENTE;
+    }
+
+    public String reservarComoCliente(int idxVehiculo, LocalDate inicio, LocalDate fin) {
         if (usuarioLogueado == null) {
             return "Debe iniciar sesión para crear reservas.";
         }
-        if (usuarioLogueado.getRol() != RolUsuario.CLIENTE) {
+        if (!esCliente()) {
             return "Esta opción es exclusiva para usuarios CLIENTE.";
         }
-        Cliente clienteLogueado = usuarioLogueado.getCliente();
-        if (clienteLogueado == null) {
+        if (usuarioLogueado.getCliente() == null) {
             return "El usuario no tiene una ficha de cliente asociada.";
         }
-        return crearReservaParaCliente(clienteLogueado, idxVehiculo, inicio, fin);
+        if (inicio == null || fin == null) {
+            return "Debe indicar fecha de inicio y fecha de fin.";
+        }
+        return crearReservaParaCliente(usuarioLogueado.getCliente(), idxVehiculo, inicio, fin);
+    }
+
+    public String crearReservaCliente(int idxVehiculo, LocalDate inicio, LocalDate fin) {
+        return reservarComoCliente(idxVehiculo, inicio, fin);
     }
 
     private String crearReservaParaCliente(Cliente cliente, int idxVehiculo, LocalDate inicio, LocalDate fin) {
@@ -295,23 +329,23 @@ public class SistemaAlquiler {
             if (cliente == null) {
                 return "Cliente inválido.";
             }
-            List<Vehiculo> vehiculosBD = gestorBaseDatos.cargarVehiculos();
-            if (vehiculosBD == null) {
-                vehiculosBD = new java.util.ArrayList<Vehiculo>();
+            if (inicio == null || fin == null) {
+                return "Debe indicar fecha de inicio y fecha de fin.";
             }
-            java.util.ArrayList<Vehiculo> contenedorGenericoVehiculos = new java.util.ArrayList<Vehiculo>();
-            for (Vehiculo vehiculoDisponible : vehiculosBD) {
+            List<Vehiculo> vehiculosDisponibles = new ArrayList<Vehiculo>();
+            for (Vehiculo vehiculoDisponible : repoVehiculos.listar()) {
                 if (vehiculoDisponible != null && vehiculoDisponible.getEstado() == enums.EstadoVehiculo.DISPONIBLE) {
-                    contenedorGenericoVehiculos.add(vehiculoDisponible);
+                    vehiculosDisponibles.add(vehiculoDisponible);
                 }
             }
-            if (contenedorGenericoVehiculos.isEmpty()) {
+            if (vehiculosDisponibles.isEmpty()) {
                 return "No hay automóviles disponibles para reservar.";
             }
-            if (idxVehiculo < 0 || idxVehiculo >= contenedorGenericoVehiculos.size()) {
+            if (idxVehiculo < 0 || idxVehiculo >= vehiculosDisponibles.size()) {
                 return "Índices inválidos.";
             }
-            for (Reserva r : reservas) {
+            List<Reserva> reservasActuales = repoReservas.listar();
+            for (Reserva r : reservasActuales) {
                 if (r != null && r.getCliente() != null && r.getCliente().getId().equals(cliente.getId()) && r.getEstado() != enums.EstadoReserva.CANCELADA && r.getEstado() != enums.EstadoReserva.CONCRETADA) {
                     if (r.getFechaInicio() != null && r.getFechaFin() != null) {
                         if (!(fin.isBefore(r.getFechaInicio()) || inicio.isAfter(r.getFechaFin()))) {
@@ -320,8 +354,8 @@ public class SistemaAlquiler {
                     }
                 }
             }
-            Vehiculo vehiculoSeleccionado = contenedorGenericoVehiculos.get(idxVehiculo);
-            for (Reserva r : reservas) {
+            Vehiculo vehiculoSeleccionado = vehiculosDisponibles.get(idxVehiculo);
+            for (Reserva r : reservasActuales) {
                 if (r != null && r.getVehiculo() != null && r.getVehiculo().getPatente().equals(vehiculoSeleccionado.getPatente()) && r.getEstado() != enums.EstadoReserva.CANCELADA && r.getEstado() != enums.EstadoReserva.CONCRETADA) {
                     if (r.getFechaInicio() != null && r.getFechaFin() != null) {
                         if (!(fin.isBefore(r.getFechaInicio()) || inicio.isAfter(r.getFechaFin()))) {
@@ -330,7 +364,7 @@ public class SistemaAlquiler {
                     }
                 }
             }
-            for (Ocupacion o : servicioAlquiler.listarAlquiladosActualmente()) {
+            for (Ocupacion o : repoOcupaciones.listar()) {
                 if (o != null && o.getCliente() != null && o.getCliente().getId().equals(cliente.getId()) && o.estaActiva()) {
                     return "El cliente ya tiene un automóvil alquilado al mismo tiempo.";
                 }
@@ -340,10 +374,7 @@ public class SistemaAlquiler {
                     LocalDateTime.now(), EstadoReserva.PENDIENTE,
                     usuarioLogueado != null ? usuarioLogueado.getUsername() : "");
             if (reserva.validar()) {
-                java.util.ArrayList<Reserva> contenedorReservas = new java.util.ArrayList<Reserva>(reservas);
-                contenedorReservas.add(reserva);
-                reservas.clear();
-                reservas.addAll(contenedorReservas);
+                repoReservas.guardar(reserva.getIdReserva(), reserva);
                 gestorBaseDatos.guardarReserva(reserva);
                 return "Reserva creada correctamente. ID: " + reserva.getIdReserva().substring(0, 8) +
                         "\nCliente: " + cliente.getNombreCompleto() + " | DNI: " + cliente.getDni() +
@@ -361,12 +392,13 @@ public class SistemaAlquiler {
         }
         StringBuilder sb = new StringBuilder();
         sb.append("\n--- LISTADO DE CLIENTES ---\n");
-        if (clientes == null || clientes.isEmpty()) {
+        List<Cliente> clientesActuales = repoClientes.listar();
+        if (clientesActuales.isEmpty()) {
             sb.append("No hay clientes registrados.\n");
             return sb.toString();
         }
-        for (int i = 0; i < clientes.size(); i++) {
-            Cliente c = clientes.get(i);
+        for (int i = 0; i < clientesActuales.size(); i++) {
+            Cliente c = clientesActuales.get(i);
             if (c != null) {
                 sb.append(i).append(": ").append(c.toString()).append("\n");
             }
@@ -380,12 +412,13 @@ public class SistemaAlquiler {
         }
         StringBuilder sb = new StringBuilder();
         sb.append("\n--- LISTADO DE RESERVAS ---\n");
-        if (reservas == null || reservas.isEmpty()) {
+        List<Reserva> reservasActuales = repoReservas.listar();
+        if (reservasActuales.isEmpty()) {
             sb.append("No hay reservas.\n");
             return sb.toString();
         }
-        for (int i = 0; i < reservas.size(); i++) {
-            Reserva r = reservas.get(i);
+        for (int i = 0; i < reservasActuales.size(); i++) {
+            Reserva r = reservasActuales.get(i);
             if (r != null) {
                 sb.append(i).append(": ").append(r.toString()).append("\n");
             }
@@ -429,10 +462,10 @@ public class SistemaAlquiler {
 
     private ArrayList<Reserva> reservasCancelables() {
         ArrayList<Reserva> lista = new ArrayList<Reserva>();
-        if (usuarioLogueado == null || reservas == null) {
+        if (usuarioLogueado == null) {
             return lista;
         }
-        for (Reserva reserva : reservas) {
+        for (Reserva reserva : repoReservas.listar()) {
             if (puedeCancelarReserva(reserva)) {
                 lista.add(reserva);
             }
@@ -447,7 +480,7 @@ public class SistemaAlquiler {
         if (reserva.getEstado() == EstadoReserva.CONCRETADA || reserva.getEstado() == EstadoReserva.CANCELADA) {
             return false;
         }
-        for (Ocupacion ocupacion : servicioAlquiler.listarOcupaciones()) {
+        for (Ocupacion ocupacion : repoOcupaciones.listar()) {
             if (ocupacion != null && ocupacion.estaActiva() && ocupacion.getReserva() != null
                     && ocupacion.getReserva().getIdReserva() != null
                     && ocupacion.getReserva().getIdReserva().equals(reserva.getIdReserva())) {
@@ -468,11 +501,12 @@ public class SistemaAlquiler {
         if (usuarioLogueado.getRol() != RolUsuario.ADMINISTRADOR && usuarioLogueado.getRol() != RolUsuario.EMPLEADO) {
             throw new UsuarioNoAutorizadoException("Solo un ADMINISTRADOR o EMPLEADO puede eliminar clientes.");
         }
-        if (indice < 0 || clientes == null || indice >= clientes.size()) return "Cliente inválido";
-        Cliente c = clientes.get(indice);
+        List<Cliente> clientesActuales = repoClientes.listar();
+        if (indice < 0 || indice >= clientesActuales.size()) return "Cliente inválido";
+        Cliente c = clientesActuales.get(indice);
         if (c == null) return "Cliente inválido";
         java.util.ArrayList<Ocupacion> ocupacionesCliente = new java.util.ArrayList<Ocupacion>();
-        for (Ocupacion o : servicioAlquiler.listarOcupaciones()) {
+        for (Ocupacion o : repoOcupaciones.listar()) {
             if (o != null && o.getCliente() != null && o.getCliente().getId().equals(c.getId())) {
                 if (o.estaActiva()) {
                     return "No se puede eliminar el cliente: tiene una ocupación activa (vehículo "
@@ -482,23 +516,25 @@ public class SistemaAlquiler {
             }
         }
         java.util.ArrayList<Reserva> aEliminar = new java.util.ArrayList<Reserva>();
-        for (Reserva r : new java.util.ArrayList<Reserva>(reservas)) {
+        for (Reserva r : repoReservas.listar()) {
             if (r != null && r.getCliente() != null && r.getCliente().getId().equals(c.getId())) {
                 aEliminar.add(r);
             }
         }
         for (Reserva r : aEliminar) {
-            reservas.remove(r);
+            repoReservas.eliminar(r.getIdReserva());
             GestorBaseDatos.eliminarReserva(r.getIdReserva());
         }
         for (Ocupacion o : ocupacionesCliente) {
+            repoOcupaciones.eliminar(o.getIdOcupacion());
             gestorBaseDatos.eliminarOcupacionCompleta(o.getIdOcupacion());
         }
-        clientes.remove(indice);
+        repoClientes.eliminar(c.getId());
         GestorBaseDatos.eliminarCliente(c.getId());
         try {
-            Usuario usuarioAsociado = gestorBaseDatos.cargarUsuarioPorId(c.getId());
+            Usuario usuarioAsociado = repoUsuarios.buscar(c.getId()).orElse(null);
             if (usuarioAsociado != null && usuarioAsociado.getRol() == RolUsuario.CLIENTE) {
+                repoUsuarios.eliminar(c.getId());
                 gestorBaseDatos.eliminarUsuarioPorId(c.getId());
             }
         } catch (Exception ignored) {
@@ -513,20 +549,12 @@ public class SistemaAlquiler {
         if (usuarioLogueado.getRol() != RolUsuario.ADMINISTRADOR && usuarioLogueado.getRol() != RolUsuario.EMPLEADO) {
             throw new UsuarioNoAutorizadoException("Solo un ADMINISTRADOR o EMPLEADO puede eliminar vehículos.");
         }
-        java.util.ArrayList<Vehiculo> listaVehiculos = new java.util.ArrayList<Vehiculo>();
-        try {
-            List<Vehiculo> vehiculosBD = gestorBaseDatos.cargarVehiculos();
-            if (vehiculosBD != null) {
-                listaVehiculos.addAll(vehiculosBD);
-            }
-        } catch (Exception e) {
-            return "Error al consultar vehículos: " + e.getMessage();
-        }
+        List<Vehiculo> listaVehiculos = repoVehiculos.listar();
         if (indice < 0 || listaVehiculos.isEmpty() || indice >= listaVehiculos.size()) return "Vehículo inválido";
         Vehiculo v = listaVehiculos.get(indice);
         if (v == null) return "Vehículo inválido";
         java.util.ArrayList<Ocupacion> ocupacionesVehiculo = new java.util.ArrayList<Ocupacion>();
-        for (Ocupacion o : servicioAlquiler.listarOcupaciones()) {
+        for (Ocupacion o : repoOcupaciones.listar()) {
             if (o != null && o.getVehiculo() != null && o.getVehiculo().getPatente().equals(v.getPatente())) {
                 if (o.estaActiva()) {
                     return "No se puede eliminar el vehículo: tiene una ocupación activa.";
@@ -535,21 +563,20 @@ public class SistemaAlquiler {
             }
         }
         java.util.ArrayList<Reserva> aEliminar = new java.util.ArrayList<Reserva>();
-        for (Reserva r : new java.util.ArrayList<Reserva>(reservas)) {
+        for (Reserva r : repoReservas.listar()) {
             if (r != null && r.getVehiculo() != null && r.getVehiculo().getPatente().equals(v.getPatente())) {
                 aEliminar.add(r);
             }
         }
         for (Reserva r : aEliminar) {
-            reservas.remove(r);
+            repoReservas.eliminar(r.getIdReserva());
             GestorBaseDatos.eliminarReserva(r.getIdReserva());
         }
         for (Ocupacion o : ocupacionesVehiculo) {
+            repoOcupaciones.eliminar(o.getIdOcupacion());
             gestorBaseDatos.eliminarOcupacionCompleta(o.getIdOcupacion());
         }
-        if (repoVehiculos != null && v.getPatente() != null) {
-            repoVehiculos.eliminar(v.getPatente());
-        }
+        repoVehiculos.eliminar(v.getPatente());
         GestorBaseDatos.eliminarVehiculo(v.getPatente());
         recargarOcupacionesDesdeBD();
         return "Vehículo eliminado correctamente. Se eliminaron " + aEliminar.size() + " reserva(s) y "
@@ -561,11 +588,12 @@ public class SistemaAlquiler {
         if (usuarioLogueado.getRol() != RolUsuario.ADMINISTRADOR && usuarioLogueado.getRol() != RolUsuario.EMPLEADO) {
             throw new UsuarioNoAutorizadoException("Solo un ADMINISTRADOR o EMPLEADO puede eliminar reservas.");
         }
-        if (indice < 0 || reservas == null || indice >= reservas.size()) return "Reserva inválida";
-        Reserva r = reservas.get(indice);
+        List<Reserva> reservasActuales = repoReservas.listar();
+        if (indice < 0 || indice >= reservasActuales.size()) return "Reserva inválida";
+        Reserva r = reservasActuales.get(indice);
         if (r == null) return "Reserva inválida";
         java.util.ArrayList<Ocupacion> ocupacionesReserva = new java.util.ArrayList<Ocupacion>();
-        for (Ocupacion o : servicioAlquiler.listarOcupaciones()) {
+        for (Ocupacion o : repoOcupaciones.listar()) {
             if (o != null && o.getReserva() != null && o.getReserva().getIdReserva().equals(r.getIdReserva())) {
                 if (o.estaActiva()) {
                     return "No se puede eliminar la reserva: tiene una ocupación activa.";
@@ -574,9 +602,10 @@ public class SistemaAlquiler {
             }
         }
         for (Ocupacion o : ocupacionesReserva) {
+            repoOcupaciones.eliminar(o.getIdOcupacion());
             gestorBaseDatos.eliminarOcupacionCompleta(o.getIdOcupacion());
         }
-        reservas.remove(indice);
+        repoReservas.eliminar(r.getIdReserva());
         GestorBaseDatos.eliminarReserva(r.getIdReserva());
         recargarOcupacionesDesdeBD();
         return "Reserva eliminada correctamente. Se eliminaron " + ocupacionesReserva.size() + " ocupación(es) asociada(s).";
@@ -584,14 +613,18 @@ public class SistemaAlquiler {
 
     private void recargarOcupacionesDesdeBD() {
         try {
-            java.util.ArrayList<Vehiculo> vehiculosBD = new java.util.ArrayList<Vehiculo>(gestorBaseDatos.cargarVehiculos());
-            java.util.ArrayList<Cliente> clientesBD = new java.util.ArrayList<Cliente>(clientes);
-            java.util.ArrayList<Empleado> empleadosBD = new java.util.ArrayList<Empleado>(empleados);
-            java.util.ArrayList<Reserva> reservasBD = new java.util.ArrayList<Reserva>(reservas);
+            java.util.ArrayList<Vehiculo> vehiculosBD = new java.util.ArrayList<Vehiculo>(repoVehiculos.listar());
+            java.util.ArrayList<Cliente> clientesBD = new java.util.ArrayList<Cliente>(repoClientes.listar());
+            java.util.ArrayList<Empleado> empleadosBD = new java.util.ArrayList<Empleado>(repoEmpleados.listar());
+            java.util.ArrayList<Reserva> reservasBD = new java.util.ArrayList<Reserva>(repoReservas.listar());
             java.util.ArrayList<Ocupacion> ocupacionesBD = new java.util.ArrayList<Ocupacion>(
                     gestorBaseDatos.cargarOcupaciones(clientesBD, vehiculosBD, empleadosBD, reservasBD));
+            repoOcupaciones.limpiar();
+            for (Ocupacion ocupacion : ocupacionesBD) {
+                repoOcupaciones.guardar(ocupacion.getIdOcupacion(), ocupacion);
+            }
             servicioAlquiler.cargarOcupaciones(ocupacionesBD);
-            reconstruirHistorialOcupaciones(ocupacionesBD);
+            reconstruirHistorialOcupaciones(repoOcupaciones.listar());
         } catch (Exception ignored) {
         }
     }
@@ -600,7 +633,7 @@ public class SistemaAlquiler {
         StringBuilder sb = new StringBuilder();
         sb.append("\n--- USUARIOS ---\n");
         try {
-            List<Usuario> listaUsuarios = gestorBaseDatos.cargarUsuarios();
+            List<Usuario> listaUsuarios = repoUsuarios.listar();
             if (listaUsuarios == null || listaUsuarios.isEmpty()) {
                 sb.append("No hay usuarios registrados.\n");
                 return sb.toString();
@@ -620,7 +653,7 @@ public class SistemaAlquiler {
 
     public String eliminarUsuarioPorIndice(int indice) {
         try {
-            List<Usuario> listaUsuarios = gestorBaseDatos.cargarUsuarios();
+            List<Usuario> listaUsuarios = repoUsuarios.listar();
             if (listaUsuarios == null || listaUsuarios.isEmpty()) return "No hay usuarios registrados.";
             if (indice < 0 || indice >= listaUsuarios.size()) return "Indice de usuario invalido.";
             return eliminarUsuario(listaUsuarios.get(indice).getUsername());
@@ -642,25 +675,47 @@ public class SistemaAlquiler {
             return "No puede eliminar el usuario con el que está logueado.";
         }
         try {
-            Usuario u = gestorBaseDatos.cargarUsuarioPorUsername(nombreUsuario);
+            Usuario u = null;
+            for (Usuario usuario : repoUsuarios.listar()) {
+                if (usuario != null && nombreUsuario.equals(usuario.getUsername())) {
+                    u = usuario;
+                    break;
+                }
+            }
             if (u == null) return "Usuario no encontrado";
             String idUsuario = u.getIdUsuario();
+            repoUsuarios.eliminar(idUsuario);
+            repoEmpleados.eliminar(idUsuario);
             gestorBaseDatos.eliminarUsuarioPorId(idUsuario);
             GestorBaseDatos.eliminarEmpleado(idUsuario);
-            empleados.removeIf(empleado -> empleado != null && idUsuario.equals(empleado.getId()));
             return "Usuario eliminado correctamente.";
         } catch (Exception e) {
             return "Error al eliminar usuario: " + e.getMessage();
         }
     }
 
+    private ArrayList<Reserva> reservasPendientes() {
+        ArrayList<Reserva> pendientes = new ArrayList<Reserva>();
+        for (Reserva reserva : repoReservas.listar()) {
+            if (reserva != null && reserva.getEstado() == EstadoReserva.PENDIENTE) {
+                pendientes.add(reserva);
+            }
+        }
+        return pendientes;
+    }
+
     public String getReservaInfo(int idx) {
-        if (reservas == null || reservas.isEmpty()) return "No hay reservas";
-        if (idx < 0 || idx >= reservas.size()) return "";
-        Reserva r = reservas.get(idx);
+        List<Reserva> reservasActuales = reservasPendientes();
+        if (reservasActuales.isEmpty()) return "No hay reservas pendientes";
+        if (idx < 0 || idx >= reservasActuales.size()) return "";
+        Reserva r = reservasActuales.get(idx);
         if (r == null) return "";
         String estado = r.getEstado() != null ? r.getEstado().name() : "";
         return idx + ": " + r.getIdReserva().substring(0, 8) + " | Cliente: " + (r.getCliente() != null ? r.getCliente().getNombreCompleto() : "") + " | Vehículo: " + (r.getVehiculo() != null ? r.getVehiculo().getPatente() : "") + " | Estado: " + estado;
+    }
+
+    public String realizarEntregaPorIndice(int indiceReserva) {
+        return realizarEntregaPorIndice(indiceReserva, "");
     }
 
     public String realizarEntregaPorIndice(int indiceReserva, String observaciones) {
@@ -670,15 +725,15 @@ public class SistemaAlquiler {
         if (usuarioLogueado.getRol() != RolUsuario.ADMINISTRADOR && usuarioLogueado.getRol() != RolUsuario.EMPLEADO) {
             throw new UsuarioNoAutorizadoException("Solo un ADMINISTRADOR o EMPLEADO pueden realizar entregas.");
         }
-        if (reservas == null || reservas.isEmpty()) {
-            return "No hay reservas.";
+        List<Reserva> reservasActuales = reservasPendientes();
+        if (reservasActuales.isEmpty()) {
+            return "No hay reservas pendientes.";
         }
-        if (indiceReserva < 0 || indiceReserva >= reservas.size()) {
+        if (indiceReserva < 0 || indiceReserva >= reservasActuales.size()) {
             return "Índice de reserva inválido.";
         }
         try {
-            java.util.ArrayList<Reserva> contenedorReservas = new java.util.ArrayList<Reserva>(reservas);
-            Reserva reserva = contenedorReservas.get(indiceReserva);
+            Reserva reserva = reservasActuales.get(indiceReserva);
             if (reserva.getEstado() == EstadoReserva.CONCRETADA || reserva.getEstado() == EstadoReserva.CANCELADA) {
                 return "La reserva ya está " + reserva.getEstado() + " y no puede entregarse.";
             }
@@ -688,12 +743,16 @@ public class SistemaAlquiler {
             }
             reserva.confirmar();
             Ocupacion ocupacion = servicioAlquiler.realizarEntrega(reserva, emp, observaciones);
+            if (reserva.getVehiculo() != null) {
+                gestorBaseDatos.actualizarVehiculo(reserva.getVehiculo());
+            }
+            repoOcupaciones.guardar(ocupacion.getIdOcupacion(), ocupacion);
             gestorBaseDatos.guardarOcupacion(ocupacion);
             if (ocupacion.getEntrega() != null) {
                 gestorBaseDatos.guardarEntrega(ocupacion.getEntrega());
             }
+            repoReservas.eliminar(reserva.getIdReserva());
             GestorBaseDatos.eliminarReserva(reserva.getIdReserva());
-            reservas.remove(reserva);
             StringBuilder sb = new StringBuilder();
             sb.append("Entrega realizada con éxito!\n");
             sb.append("Ocupación: ").append(ocupacion.getIdOcupacion().substring(0, 8)).append("\n");
@@ -711,7 +770,20 @@ public class SistemaAlquiler {
     }
 
 
-    public String realizarDevolucionPorIndice(int indiceOcupacion, int kilometrosRecorridos, String danios, double cargosExtra) {
+    public String realizarDevolucionPorIndice(int indiceOcupacion, int kilometrosRecorridos, String danios) {
+        return realizarDevolucionPorIndiceInterno(indiceOcupacion, kilometrosRecorridos, danios, "");
+    }
+
+    public String realizarDevolucionPorIndice(int indiceOcupacion, int kilometrosRecorridos, String danios, String observaciones) {
+        return realizarDevolucionPorIndiceInterno(indiceOcupacion, kilometrosRecorridos, danios, observaciones);
+    }
+
+    public String realizarDevolucionPorIndice(int indiceOcupacion, int kilometrosRecorridos, String danios, double cargosExtraIgnorado) {
+        return realizarDevolucionPorIndiceInterno(indiceOcupacion, kilometrosRecorridos, danios, "");
+    }
+
+    private String realizarDevolucionPorIndiceInterno(int indiceOcupacion, int kilometrosRecorridos, String danios,
+                                                      String observaciones) {
         if (usuarioLogueado == null) {
             return "Debe iniciar sesión para realizar devoluciones.";
         }
@@ -721,10 +793,12 @@ public class SistemaAlquiler {
         if (kilometrosRecorridos < 0) {
             return "Los kilómetros recorridos no pueden ser negativos.";
         }
-        if (cargosExtra < 0) {
-            return "Los cargos extra no pueden ser negativos.";
+        ArrayList<Ocupacion> activas = new ArrayList<Ocupacion>();
+        for (Ocupacion ocupacion : repoOcupaciones.listar()) {
+            if (ocupacion != null && ocupacion.estaActiva()) {
+                activas.add(ocupacion);
+            }
         }
-        ArrayList<Ocupacion> activas = new ArrayList<Ocupacion>(servicioAlquiler.listarAlquiladosActualmente());
         if (activas.isEmpty()) {
             return "No hay ocupaciones activas.";
         }
@@ -741,11 +815,14 @@ public class SistemaAlquiler {
             if (ocupacion.getVehiculo() != null) {
                 kilometrajeEntradaCalculado = ocupacion.getVehiculo().getKilometraje() + kilometrosRecorridos;
             }
+            double cargosExtra = ocupacion.getVehiculo() != null ? ocupacion.getVehiculo().getTarifaSeguro() : 0.0;
             Devolucion dev = servicioAlquiler.realizarDevolucion(ocupacion, emp, kilometrajeEntradaCalculado, danios, cargosExtra);
+            dev.setObservaciones(observaciones);
             if (ocupacion.getVehiculo() != null) {
                 ocupacion.getVehiculo().setKilometraje(kilometrajeEntradaCalculado);
                 gestorBaseDatos.actualizarVehiculo(ocupacion.getVehiculo());
             }
+            repoOcupaciones.guardar(ocupacion.getIdOcupacion(), ocupacion);
             gestorBaseDatos.guardarDevolucion(dev);
             if (dev.getOcupacion() != null) {
                 gestorBaseDatos.guardarOcupacion(dev.getOcupacion());
@@ -754,6 +831,7 @@ public class SistemaAlquiler {
             sb.append("Devolución realizada con éxito!\n");
             sb.append("Kilometraje anterior: ").append(ocupacion.getVehiculo() != null ? (ocupacion.getVehiculo().getKilometraje() - kilometrosRecorridos) : 0).append("\n");
             sb.append("Kilometraje actual: ").append(kilometrajeEntradaCalculado).append("\n");
+            sb.append("Cargos extra: $").append(dev.getCargosExtra()).append("\n");
             sb.append("Monto final: $").append(dev.calcularCargos()).append("\n");
             if (ocupacion.getVehiculo() != null) {
                 sb.append("Vehículo ahora en estado: ").append(ocupacion.getVehiculo().getEstado()).append("\n");
@@ -790,28 +868,26 @@ public class SistemaAlquiler {
         if (usuarioLogueado != null && usuarioLogueado.getRol() == RolUsuario.CLIENTE) {
             throw new UsuarioNoAutorizadoException("Un usuario CLIENTE no puede ver el historial de todos los clientes.");
         }
-        if (clientes == null || clientes.isEmpty()) {
+        List<Cliente> clientesActuales = repoClientes.listar();
+        if (clientesActuales.isEmpty()) {
             return "No hay clientes.";
         }
         StringBuilder sb = new StringBuilder();
         sb.append("\n--- HISTORIAL DE CLIENTES ---\n");
         java.util.HashSet<String> clientesConHistorial = new java.util.HashSet<String>();
-        java.util.ArrayList<Reserva> reservasActuales = new java.util.ArrayList<Reserva>();
-        if (reservas != null) {
-            reservasActuales.addAll(reservas);
-        }
+        java.util.ArrayList<Reserva> reservasActuales = new java.util.ArrayList<Reserva>(repoReservas.listar());
         for (Reserva r : reservasActuales) {
             if (r != null && r.getCliente() != null) {
                 clientesConHistorial.add(r.getCliente().getId());
             }
         }
-        for (Cliente cli : clientes) {
+        for (Cliente cli : clientesActuales) {
             if (cli != null && !cli.getHistorialOcupaciones().isEmpty()) {
                 clientesConHistorial.add(cli.getId());
             }
         }
         boolean hay = false;
-        for (Cliente cli : clientes) {
+        for (Cliente cli : clientesActuales) {
             if (cli != null && clientesConHistorial.contains(cli.getId())) {
                 hay = true;
                 sb.append("\n").append(cli.getNombreCompleto()).append(" (DNI ").append(cli.getDni()).append(")\n");
@@ -843,6 +919,16 @@ public class SistemaAlquiler {
                                     .append(" | cargos extra $").append(o.getDevolucion().getCargosExtra())
                                     .append(" | monto final $").append(o.getDevolucion().getMontoFinal()).append("\n");
                         }
+                        String observaciones = o.getDevolucion() != null ? o.getDevolucion().getObservaciones() : null;
+                        if (observaciones == null || observaciones.trim().isEmpty()) {
+                            observaciones = o.getEntrega() != null ? o.getEntrega().getObservaciones() : null;
+                        }
+                        if (o.getDevolucion() != null || (observaciones != null && !observaciones.trim().isEmpty())) {
+                            sb.append("  OBSERVACIONES: ")
+                                    .append(observaciones != null && !observaciones.trim().isEmpty()
+                                            ? observaciones.trim() : "sin observaciones")
+                                    .append("\n");
+                        }
                     }
                 }
             }
@@ -860,7 +946,7 @@ public class SistemaAlquiler {
         StringBuilder sb = new StringBuilder();
         sb.append("\n--- ADMINISTRAR USUARIOS ---\n");
         try {
-            List<Usuario> listaUsuarios = gestorBaseDatos.cargarUsuarios();
+            List<Usuario> listaUsuarios = repoUsuarios.listar();
             for (Usuario u : listaUsuarios) {
                 sb.append("Usuario: ").append(u.getUsername()).append(" | Rol: ").append(u.getRol())
                         .append(" | Activo: ").append(u.isActivo()).append("\n");
@@ -875,12 +961,8 @@ public class SistemaAlquiler {
         StringBuilder sb = new StringBuilder();
         sb.append("\n--- AUTOMOVILES (POLIMORFISMO) ---\n");
         try {
-            List<Vehiculo> vehiculosBD = gestorBaseDatos.cargarVehiculos();
-            if (vehiculosBD == null) {
-                vehiculosBD = new java.util.ArrayList<Vehiculo>();
-            }
-            java.util.ArrayList<Vehiculo> contenedorGenerico = new java.util.ArrayList<Vehiculo>(vehiculosBD);
-            for (Vehiculo v : contenedorGenerico) {
+            List<Vehiculo> flota = repoVehiculos.listar();
+            for (Vehiculo v : flota) {
                 if (v != null) {
                     sb.append(v.getClass().getSimpleName()).append(": ").append(v.getPatente()).append(" - ")
                             .append(v.getMarca()).append(" ").append(v.getModelo())
@@ -889,7 +971,7 @@ public class SistemaAlquiler {
                             .append(" | Km: ").append(v.getKilometraje()).append("\n");
                 }
             }
-            if (contenedorGenerico.isEmpty()) {
+            if (flota.isEmpty()) {
                 sb.append("No hay automóviles registrados en la base de datos.\n");
             }
         } catch (Exception e) {
@@ -962,7 +1044,7 @@ public class SistemaAlquiler {
         }
 
         try {
-            if (gestorBaseDatos.cargarVehiculoPorPatente(patente) != null) {
+            if (repoVehiculos.buscar(patente).isPresent()) {
                 return "Ya existe un vehículo con esa patente.";
             }
 
@@ -972,15 +1054,15 @@ public class SistemaAlquiler {
             } catch (Exception excepcion) {
                 return "Estado inválido. Use: DISPONIBLE, EN_LIMPIEZA, EN_REPARACION o FUERA_SERVICIO.";
             }
-            if (estadoVehiculo == EstadoVehiculo.ALQUILADO || estadoVehiculo == EstadoVehiculo.RESERVADO) {
-                return "No se puede crear un vehículo en estado ALQUILADO o RESERVADO.";
+            if (estadoVehiculo == EstadoVehiculo.ALQUILADO) {
+                return "No se puede crear un vehículo en estado ALQUILADO.";
             }
 
             Vehiculo nuevoVehiculo = new Automovil(patente, marca, modelo, anio, kilometraje, estadoVehiculo, precioDia, tarifaSeguro,
                     cantidadPuertas, transmisionNormalizada);
 
-            gestorBaseDatos.guardarVehiculo(nuevoVehiculo);
             repoVehiculos.guardar(nuevoVehiculo.getPatente(), nuevoVehiculo);
+            gestorBaseDatos.guardarVehiculo(nuevoVehiculo);
             return "Automóvil " + patente + " agregado correctamente a la base de datos.";
         } catch (UsuarioNoAutorizadoException excepcion) {
             throw excepcion;
@@ -991,12 +1073,8 @@ public class SistemaAlquiler {
 
     public String getVehiculoInfo(int idx) {
         try {
-            List<Vehiculo> vehiculosBD = gestorBaseDatos.cargarVehiculos();
-            if (vehiculosBD == null) {
-                vehiculosBD = new java.util.ArrayList<Vehiculo>();
-            }
             java.util.ArrayList<Vehiculo> contenedorGenerico = new java.util.ArrayList<Vehiculo>();
-            for (Vehiculo vehiculo : vehiculosBD) {
+            for (Vehiculo vehiculo : repoVehiculos.listar()) {
                 if (vehiculo != null && vehiculo.getEstado() == enums.EstadoVehiculo.DISPONIBLE) {
                     contenedorGenerico.add(vehiculo);
                 }
@@ -1016,16 +1094,13 @@ public class SistemaAlquiler {
         StringBuilder sb = new StringBuilder();
         sb.append("\n--- TODOS LOS VEHICULOS ---\n");
         try {
-            List<Vehiculo> vehiculosBD = gestorBaseDatos.cargarVehiculos();
-            if (vehiculosBD == null) {
-                vehiculosBD = new java.util.ArrayList<Vehiculo>();
-            }
-            if (vehiculosBD.isEmpty()) {
+            List<Vehiculo> vehiculos = repoVehiculos.listar();
+            if (vehiculos.isEmpty()) {
                 sb.append("No hay vehiculos registrados.\n");
                 return sb.toString();
             }
-            for (int i = 0; i < vehiculosBD.size(); i++) {
-                Vehiculo v = vehiculosBD.get(i);
+            for (int i = 0; i < vehiculos.size(); i++) {
+                Vehiculo v = vehiculos.get(i);
                 if (v != null) {
                     sb.append(i).append(": ").append(v.getPatente()).append(" - ")
                             .append(v.getMarca()).append(" ").append(v.getModelo())
@@ -1056,30 +1131,24 @@ public class SistemaAlquiler {
         } catch (IllegalArgumentException e) {
             return "Estado invalido. Use: DISPONIBLE, EN_LIMPIEZA, EN_REPARACION o FUERA_SERVICIO.";
         }
-        if (nuevoEstado == EstadoVehiculo.ALQUILADO || nuevoEstado == EstadoVehiculo.RESERVADO) {
-            return "ALQUILADO y RESERVADO se gestionan automaticamente con reservas y entregas.";
+        if (nuevoEstado == EstadoVehiculo.ALQUILADO) {
+            return "ALQUILADO se gestiona automaticamente con las entregas.";
         }
         try {
-            List<Vehiculo> vehiculosBD = gestorBaseDatos.cargarVehiculos();
-            if (vehiculosBD == null || vehiculosBD.isEmpty()) {
+            List<Vehiculo> vehiculos = repoVehiculos.listar();
+            if (vehiculos.isEmpty()) {
                 return "No hay vehiculos registrados.";
             }
-            if (indice < 0 || indice >= vehiculosBD.size()) {
+            if (indice < 0 || indice >= vehiculos.size()) {
                 return "Indice de vehiculo invalido.";
             }
-            Vehiculo v = vehiculosBD.get(indice);
+            Vehiculo v = vehiculos.get(indice);
             if (v == null) {
                 return "Vehiculo invalido.";
             }
             EstadoVehiculo anterior = v.getEstado();
             v.setEstado(nuevoEstado);
             gestorBaseDatos.actualizarVehiculo(v);
-            if (repoVehiculos != null) {
-                java.util.Optional<Vehiculo> enRepo = repoVehiculos.buscar(v.getPatente());
-                if (enRepo.isPresent()) {
-                    enRepo.get().setEstado(nuevoEstado);
-                }
-            }
             return "Estado del vehiculo " + v.getPatente() + " actualizado: " + anterior + " -> " + nuevoEstado;
         } catch (Exception e) {
             return "Error al modificar estado: " + e.getMessage();
@@ -1139,14 +1208,16 @@ public class SistemaAlquiler {
 
         try {
             String username = nombreUsuario.trim();
-            if (gestorBaseDatos.cargarUsuarioPorUsername(username) != null) {
-                return "Ya existe un usuario con ese nombre de usuario.";
+            for (Usuario usuarioExistente : repoUsuarios.listar()) {
+                if (usuarioExistente != null && username.equals(usuarioExistente.getUsername())) {
+                    return "Ya existe un usuario con ese nombre de usuario.";
+                }
             }
 
             String idUsuario = UUID.randomUUID().toString();
             if (rolUsuario == RolUsuario.CLIENTE) {
                 String dniCliente = dni.trim();
-                for (Cliente clienteExistente : clientes) {
+                for (Cliente clienteExistente : repoClientes.listar()) {
                     if (clienteExistente != null && clienteExistente.getDni() != null
                             && clienteExistente.getDni().equalsIgnoreCase(dniCliente)) {
                         return "Ya existe un cliente con ese DNI.";
@@ -1155,20 +1226,22 @@ public class SistemaAlquiler {
                 Cliente cliente = new Cliente(idUsuario, nombre.trim(), apellido.trim(), dniCliente,
                         telefono != null ? telefono.trim() : "", email.trim(), LocalDate.now());
                 Usuario nuevoUsuario = new Usuario(idUsuario, username, contrasenia, rolUsuario, true, null, cliente);
+                repoClientes.guardar(cliente.getId(), cliente);
+                repoUsuarios.guardar(nuevoUsuario.getIdUsuario(), nuevoUsuario);
                 gestorBaseDatos.guardarCliente(cliente);
                 gestorBaseDatos.guardarUsuario(nuevoUsuario);
-                clientes.add(cliente);
                 return "Usuario '" + nuevoUsuario.getUsername() + "' creado correctamente con rol CLIENTE" +
                         " | Cliente: " + cliente.getNombreCompleto() + " (DNI " + cliente.getDni() + ").";
             }
 
             Empleado empleado = new Empleado(idUsuario, nombre.trim(), apellido.trim(), dni.trim(),
-                    telefono != null ? telefono.trim() : "", email.trim(), legajo.trim(), LocalDate.now(), sucursal.trim());
+                    telefono != null ? telefono.trim() : "", email.trim(), legajo.trim(), sucursal.trim());
             Usuario nuevoUsuario = new Usuario(idUsuario, username, contrasenia, rolUsuario, true, empleado);
 
+            repoEmpleados.guardar(empleado.getId(), empleado);
+            repoUsuarios.guardar(nuevoUsuario.getIdUsuario(), nuevoUsuario);
             gestorBaseDatos.guardarEmpleado(empleado);
             gestorBaseDatos.guardarUsuario(nuevoUsuario);
-            empleados.add(empleado);
 
             return "Usuario '" + nuevoUsuario.getUsername() + "' creado correctamente con rol " + rolUsuario +
                     " | Empleado: " + empleado.getNombreCompleto() + " (legajo " + empleado.getLegajo() + ").";
@@ -1207,17 +1280,20 @@ public class SistemaAlquiler {
             throw new UsuarioNoAutorizadoException("Solo un ADMINISTRADOR puede limpiar la base de datos.");
         }
         gestorBaseDatos.limpiarDatosExceptoMariano();
-        this.clientes.clear();
-        this.reservas.clear();
-        this.empleados.clear();
-        repoVehiculos = new util.RepositorioGenerico<Vehiculo, String>();
+        repoClientes.limpiar();
+        repoReservas.limpiar();
+        repoEmpleados.limpiar();
+        repoVehiculos.limpiar();
+        repoOcupaciones.limpiar();
+        repoUsuarios.limpiar();
         servicioAlquiler.cargarOcupaciones(new ArrayList<Ocupacion>());
         try {
-            Usuario admin = gestorBaseDatos.cargarUsuarioPorUsername(ADMIN_USERNAME);
+            Usuario admin = gestorBaseDatos.leerUsuarioPorUsername(ADMIN_USERNAME);
             if (admin != null) {
+                repoUsuarios.guardar(admin.getIdUsuario(), admin);
                 Empleado empleadoAdmin = construirEmpleadoAdmin(admin.getIdUsuario());
+                repoEmpleados.guardar(empleadoAdmin.getId(), empleadoAdmin);
                 gestorBaseDatos.guardarEmpleado(empleadoAdmin);
-                empleados.add(empleadoAdmin);
                 if (usuarioLogueado != null && ADMIN_USERNAME.equals(usuarioLogueado.getUsername())) {
                     usuarioLogueado.setEmpleado(empleadoAdmin);
                 }
@@ -1231,15 +1307,20 @@ public class SistemaAlquiler {
     }
 
     public boolean hayOcupacionesActivas() {
-        return !servicioAlquiler.listarAlquiladosActualmente().isEmpty();
+        for (Ocupacion ocupacion : repoOcupaciones.listar()) {
+            if (ocupacion != null && ocupacion.estaActiva()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public java.util.ArrayList<Reserva> getReservas() {
-        return reservas;
+        return new java.util.ArrayList<Reserva>(repoReservas.listar());
     }
 
     public java.util.ArrayList<Cliente> getClientes() {
-        return clientes;
+        return new java.util.ArrayList<Cliente>(repoClientes.listar());
     }
 
     public Usuario getUsuarioLogueado() {
@@ -1249,6 +1330,9 @@ public class SistemaAlquiler {
     public void setUsuarioLogueado(Usuario usuarioLogueado) {
         this.usuarioLogueado = usuarioLogueado;
     }
+
+
+
 }
 
 

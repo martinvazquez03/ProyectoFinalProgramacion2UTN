@@ -1,7 +1,7 @@
 package util;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -9,7 +9,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class RepositorioGenerico<T, ID> {
-    private Map<ID, T> cache = new HashMap<ID, T>();
+    private Map<ID, T> cache = new LinkedHashMap<ID, T>();
 
     public void guardar(ID id, T entidad) {
         cache.put(id, entidad);
@@ -29,6 +29,14 @@ public class RepositorioGenerico<T, ID> {
 
     public void eliminar(ID id) {
         cache.remove(id);
+    }
+
+    public void limpiar() {
+        cache.clear();
+    }
+
+    public int tamanio() {
+        return cache.size();
     }
 
     public <R> List<R> mapear(Function<T, R> funcion) {

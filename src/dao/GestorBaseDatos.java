@@ -64,7 +64,6 @@ public class GestorBaseDatos {
                     "telefono TEXT," +
                     "email TEXT," +
                     "legajo TEXT," +
-                    "fecha_contratacion TEXT," +
                     "sucursal TEXT" +
                     ")";
             stmt.execute(sqlEmpleado);
@@ -108,6 +107,7 @@ public class GestorBaseDatos {
                     "fecha_hora_devolucion TEXT," +
                     "kilometraje_entrada INTEGER," +
                     "danios TEXT," +
+                    "observaciones TEXT," +
                     "cargos_extra REAL," +
                     "monto_final REAL" +
                     ")";
@@ -117,9 +117,36 @@ public class GestorBaseDatos {
             agregarColumnaSiFalta(conexion, "ocupacion", "creado_por", "TEXT");
             agregarColumnaSiFalta(conexion, "ocupacion", "fecha_reserva", "TEXT");
             agregarColumnaSiFalta(conexion, "ocupacion", "fecha_inicio_reserva", "TEXT");
+            agregarColumnaSiFalta(conexion, "devolucion", "observaciones", "TEXT");
+            migrarCreadoPorAUsername(conexion);
             eliminarColumnaSiExiste(conexion, "reserva", "monto_senia");
+            eliminarColumnaSiExiste(conexion, "empleado", "fecha_contratacion");
+            eliminarEstadoVehiculoReservado(conexion);
         } catch (SQLException excepcion) {
             System.err.println("Error al crear tablas: " + excepcion.getMessage());
+        }
+    }
+
+    private void migrarCreadoPorAUsername(Connection conexion) {
+        String sqlOcupacion = "UPDATE ocupacion SET creado_por = COALESCE(" +
+                "(SELECT u.username FROM usuario u WHERE u.username = ocupacion.creado_por LIMIT 1)," +
+                "(SELECT u.username FROM usuario u WHERE u.id_usuario = ocupacion.creado_por LIMIT 1)," +
+                "(SELECT u.username FROM usuario u JOIN empleado e ON e.id_empleado = u.id_usuario " +
+                "WHERE e.legajo = ocupacion.creado_por LIMIT 1)," +
+                "ocupacion.creado_por) " +
+                "WHERE creado_por IS NOT NULL AND TRIM(creado_por) <> ''";
+        String sqlReserva = "UPDATE reserva SET creado_por = COALESCE(" +
+                "(SELECT u.username FROM usuario u WHERE u.username = reserva.creado_por LIMIT 1)," +
+                "(SELECT u.username FROM usuario u WHERE u.id_usuario = reserva.creado_por LIMIT 1)," +
+                "(SELECT u.username FROM usuario u JOIN empleado e ON e.id_empleado = u.id_usuario " +
+                "WHERE e.legajo = reserva.creado_por LIMIT 1)," +
+                "reserva.creado_por) " +
+                "WHERE creado_por IS NOT NULL AND TRIM(creado_por) <> ''";
+        try (java.sql.Statement stmt = conexion.createStatement()) {
+            stmt.executeUpdate(sqlOcupacion);
+            stmt.executeUpdate(sqlReserva);
+        } catch (SQLException excepcion) {
+            System.err.println("No se pudo migrar creado_por a username: " + excepcion.getMessage());
         }
     }
 
@@ -128,6 +155,14 @@ public class GestorBaseDatos {
             try (java.sql.Statement stmt = conexion.createStatement()) {
                 stmt.executeUpdate("ALTER TABLE " + tabla + " ADD COLUMN " + columna + " " + definicion);
             }
+        }
+    }
+
+    private void eliminarEstadoVehiculoReservado(Connection conexion) {
+        try (java.sql.Statement stmt = conexion.createStatement()) {
+            stmt.executeUpdate("UPDATE vehiculo SET estado = 'DISPONIBLE' WHERE estado = 'RESERVADO'");
+        } catch (SQLException excepcion) {
+            System.err.println("No se pudo eliminar el estado RESERVADO: " + excepcion.getMessage());
         }
     }
 
@@ -174,7 +209,7 @@ public class GestorBaseDatos {
     }
 
     public void guardarEmpleado(Empleado empleado) {
-        String sql = "INSERT OR REPLACE INTO empleado (id_empleado, nombre, apellido, dni, telefono, email, legajo, fecha_contratacion, sucursal) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        String sql = "INSERT OR REPLACE INTO empleado (id_empleado, nombre, apellido, dni, telefono, email, legajo, sucursal) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
         try (Connection conexion = ConnectionFactory.getConnection();
              PreparedStatement sentencia = conexion.prepareStatement(sql)) {
             sentencia.setString(1, empleado.getId());
@@ -184,8 +219,7 @@ public class GestorBaseDatos {
             sentencia.setString(5, empleado.getTelefono());
             sentencia.setString(6, empleado.getEmail());
             sentencia.setString(7, empleado.getLegajo());
-            sentencia.setString(8, empleado.getFechaContratacion() != null ? empleado.getFechaContratacion().toString() : java.time.LocalDate.now().toString());
-            sentencia.setString(9, empleado.getSucursal());
+            sentencia.setString(8, empleado.getSucursal());
             sentencia.executeUpdate();
         } catch (SQLException excepcion) {
             System.err.println("Error al guardar empleado en BD: " + excepcion.getMessage());
@@ -274,7 +308,7 @@ public class GestorBaseDatos {
         }
     }
 
-    public Usuario cargarUsuarioPorId(String idUsuario) throws BaseDatosException {
+    public Usuario leerUsuarioPorId(String idUsuario) throws BaseDatosException {
         String sql = "SELECT * FROM usuario WHERE id_usuario = ?";
         try (Connection conexion = ConnectionFactory.getConnection();
              PreparedStatement sentencia = conexion.prepareStatement(sql)) {
@@ -290,7 +324,7 @@ public class GestorBaseDatos {
         return null;
     }
 
-    public Usuario cargarUsuarioPorUsername(String nombreUsuario) throws BaseDatosException {
+    public Usuario leerUsuarioPorUsername(String nombreUsuario) throws BaseDatosException {
         String sql = "SELECT * FROM usuario WHERE username = ?";
         try (Connection conexion = ConnectionFactory.getConnection();
              PreparedStatement sentencia = conexion.prepareStatement(sql)) {
@@ -306,7 +340,7 @@ public class GestorBaseDatos {
         return null;
     }
 
-    public ArrayList<Usuario> cargarUsuarios() throws BaseDatosException {
+    public ArrayList<Usuario> leerUsuarios() throws BaseDatosException {
         ArrayList<Usuario> listaUsuarios = new ArrayList<Usuario>();
         String sql = "SELECT * FROM usuario";
         try (Connection conexion = ConnectionFactory.getConnection();
@@ -386,7 +420,7 @@ public class GestorBaseDatos {
     }
 
     public void guardarDevolucion(Devolucion devolucion) {
-        String sql = "INSERT OR REPLACE INTO devolucion (id_devolucion, id_ocupacion, id_empleado, fecha_hora_devolucion, kilometraje_entrada, danios, cargos_extra, monto_final) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+        String sql = "INSERT OR REPLACE INTO devolucion (id_devolucion, id_ocupacion, id_empleado, fecha_hora_devolucion, kilometraje_entrada, danios, observaciones, cargos_extra, monto_final) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
         try (Connection conexion = ConnectionFactory.getConnection();
              PreparedStatement sentencia = conexion.prepareStatement(sql)) {
             if (devolucion.getOcupacion() == null || devolucion.getEmpleado() == null) {
@@ -398,8 +432,9 @@ public class GestorBaseDatos {
             sentencia.setString(4, devolucion.getFechaHoraDevolucion() != null ? devolucion.getFechaHoraDevolucion().toString() : java.time.LocalDateTime.now().toString());
             sentencia.setInt(5, devolucion.getKilometrajeEntrada());
             sentencia.setString(6, devolucion.getDanios());
-            sentencia.setDouble(7, devolucion.getCargosExtra());
-            sentencia.setDouble(8, devolucion.getMontoFinal());
+            sentencia.setString(7, devolucion.getObservaciones());
+            sentencia.setDouble(8, devolucion.getCargosExtra());
+            sentencia.setDouble(9, devolucion.getMontoFinal());
             sentencia.executeUpdate();
         } catch (SQLException excepcion) {
             System.err.println("Error al guardar devolucion en BD: " + excepcion.getMessage());
@@ -442,7 +477,7 @@ public class GestorBaseDatos {
         }
     }
 
-    public java.util.ArrayList<model.Cliente> cargarClientes() {
+    public java.util.ArrayList<model.Cliente> leerClientes() {
         java.util.ArrayList<model.Cliente> lista = new java.util.ArrayList<model.Cliente>();
         String sql = "SELECT * FROM cliente";
         try (Connection conexion = ConnectionFactory.getConnection();
@@ -493,7 +528,7 @@ public class GestorBaseDatos {
         }
     }
 
-    public Vehiculo cargarVehiculoPorPatente(String patente) throws BaseDatosException {
+    public Vehiculo leerVehiculoPorPatente(String patente) throws BaseDatosException {
         String sql = "SELECT * FROM vehiculo WHERE patente = ?";
         try (Connection conexion = ConnectionFactory.getConnection();
              PreparedStatement sentencia = conexion.prepareStatement(sql)) {
@@ -529,7 +564,7 @@ public class GestorBaseDatos {
         }
     }
 
-    public ArrayList<Vehiculo> cargarVehiculos() {
+    public ArrayList<Vehiculo> leerVehiculos() {
         ArrayList<Vehiculo> listaVehiculos = new ArrayList<Vehiculo>();
         String sql = "SELECT * FROM vehiculo";
         try (Connection conexion = ConnectionFactory.getConnection();
@@ -554,7 +589,7 @@ public class GestorBaseDatos {
     private static String datosEspecificosDe(Vehiculo vehiculo) {
         if (vehiculo instanceof Automovil) {
             Automovil automovil = (Automovil) vehiculo;
-            return automovil.getCantidadPuertas() + "|" + automovil.getTransmision();
+            return automovil.getCantidadPuertas() + "|" + automovil.getTransmision() + "|" + automovil.getKilometraje();
         }
         return null;
     }
@@ -598,7 +633,7 @@ public class GestorBaseDatos {
                 cantidadPuertas, transmision);
     }
 
-    public java.util.ArrayList<model.Empleado> cargarEmpleados() {
+    public java.util.ArrayList<model.Empleado> leerEmpleados() {
         java.util.ArrayList<model.Empleado> lista = new java.util.ArrayList<model.Empleado>();
         String sql = "SELECT * FROM empleado";
         try (Connection conexion = ConnectionFactory.getConnection();
@@ -613,7 +648,7 @@ public class GestorBaseDatos {
         return lista;
     }
 
-    public model.Empleado cargarEmpleadoPorId(String idEmpleado) {
+    public model.Empleado leerEmpleadoPorId(String idEmpleado) {
         if (idEmpleado == null) {
             return null;
         }
@@ -633,13 +668,6 @@ public class GestorBaseDatos {
     }
 
     private model.Empleado mapearEmpleado(java.sql.ResultSet resultado) throws SQLException {
-        java.time.LocalDate fecha = java.time.LocalDate.now();
-        try {
-            if (resultado.getString("fecha_contratacion") != null) {
-                fecha = java.time.LocalDate.parse(resultado.getString("fecha_contratacion"));
-            }
-        } catch (Exception ignored) {
-        }
         return new model.Empleado(
                 resultado.getString("id_empleado"),
                 resultado.getString("nombre"),
@@ -648,7 +676,6 @@ public class GestorBaseDatos {
                 resultado.getString("telefono"),
                 resultado.getString("email"),
                 resultado.getString("legajo"),
-                fecha,
                 resultado.getString("sucursal")
         );
     }
@@ -664,7 +691,7 @@ public class GestorBaseDatos {
         }
     }
 
-    public java.util.ArrayList<model.Reserva> cargarReservas(java.util.ArrayList<model.Cliente> listaClientes, java.util.ArrayList<model.Vehiculo> listaVehiculos) {
+    public java.util.ArrayList<model.Reserva> leerReservas(java.util.ArrayList<model.Cliente> listaClientes, java.util.ArrayList<model.Vehiculo> listaVehiculos) {
         java.util.ArrayList<model.Reserva> lista = new java.util.ArrayList<model.Reserva>();
         String sql = "SELECT * FROM reserva";
         try (Connection conexion = ConnectionFactory.getConnection();
@@ -766,11 +793,11 @@ public class GestorBaseDatos {
                     ocupacion.setEstado(enums.EstadoOcupacion.valueOf(estadoGuardado));
                 } catch (Exception ignored) {
                 }
-                model.Entrega entrega = cargarEntrega(ocupacion, listaEmpleados);
+                model.Entrega entrega = leerEntrega(ocupacion, listaEmpleados);
                 if (entrega != null) {
                     ocupacion.setEntrega(entrega);
                 }
-                model.Devolucion devolucion = cargarDevolucion(ocupacion, listaEmpleados);
+                model.Devolucion devolucion = leerDevolucion(ocupacion, listaEmpleados);
                 if (devolucion != null) {
                     ocupacion.cerrar(devolucion);
                     if (!enums.EstadoOcupacion.FINALIZADA.name().equals(estadoGuardado)) {
@@ -800,7 +827,7 @@ public class GestorBaseDatos {
         }
     }
 
-    private model.Entrega cargarEntrega(model.Ocupacion ocupacion, java.util.ArrayList<model.Empleado> listaEmpleados) {
+    private model.Entrega leerEntrega(model.Ocupacion ocupacion, java.util.ArrayList<model.Empleado> listaEmpleados) {
         String sql = "SELECT * FROM entrega WHERE id_ocupacion = ?";
         try (Connection conexion = ConnectionFactory.getConnection();
              java.sql.PreparedStatement sentencia = conexion.prepareStatement(sql)) {
@@ -824,7 +851,7 @@ public class GestorBaseDatos {
         return null;
     }
 
-    private model.Devolucion cargarDevolucion(model.Ocupacion ocupacion, java.util.ArrayList<model.Empleado> listaEmpleados) {
+    private model.Devolucion leerDevolucion(model.Ocupacion ocupacion, java.util.ArrayList<model.Empleado> listaEmpleados) {
         String sql = "SELECT * FROM devolucion WHERE id_ocupacion = ?";
         try (Connection conexion = ConnectionFactory.getConnection();
              java.sql.PreparedStatement sentencia = conexion.prepareStatement(sql)) {
@@ -839,7 +866,8 @@ public class GestorBaseDatos {
                             parseFechaHora(resultado.getString("fecha_hora_devolucion"), null),
                             resultado.getInt("kilometraje_entrada"),
                             resultado.getString("danios"),
-                            resultado.getDouble("cargos_extra")
+                            resultado.getDouble("cargos_extra"),
+                            resultado.getString("observaciones")
                     );
                     devolucion.setMontoFinal(resultado.getDouble("monto_final"));
                     return devolucion;
